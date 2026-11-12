@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block title %}Register Pair | Wife Carrying 2027{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Register a Competition Pair</h1>
+        <p class="page-subtitle">Feature 6 (Write 1 - Create): Atomically register a pair entry enforcing edition and category constraints.</p>
+    </div>
+</div>
+
+<div class="form-card" style="max-width: 720px; margin: 0 auto;">
+    <form method="POST" action="{{ url_for('register_pair') }}">
+        <div class="form-group">
+            <label class="form-label" for="edition_year">Competition Edition:</label>
+            <select name="edition_year" id="edition_year" class="form-control" required>
+                {% for ed in editions %}
+                    <option value="{{ ed.edition_year }}" {% if ed.edition_year == 2027 %}selected{% endif %}>
+                        Edition {{ ed.edition_year }} ({{ ed.edition_status }} &bull; {{ ed.venue }})
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="category_id">Championship Category:</label>
+            <select name="category_id" id="category_id" class="form-control" required>
+                {% for cat in categories %}
+                    <option value="{{ cat.category_id }}">
+                        {{ cat.category_name }} (Min Carried Weight: {{ cat.min_carried_weight_kg or 49 }}kg, Min Age: {{ cat.minimum_age or 17 }})
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="carrier_id">Carrier (Competitor 1):</label>
+            <select name="carrier_id" id="carrier_id" class="form-control" required>
+                <option value="">-- Choose Carrier --</option>
+                {% for p in participants %}
+                    <option value="{{ p.participant_id }}">{{ p.full_name }} ({{ p.country_name }})</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="carried_id">Carried (Competitor 2):</label>
+            <select name="carried_id" id="carried_id" class="form-control" required>
+                <option value="">-- Choose Carried Competitor --</option>
+                {% for p in participants %}
+                    <option value="{{ p.participant_id }}">{{ p.full_name }} ({{ p.country_name }})</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="bib_number">Bib Number (Optional):</label>
+            <input type="number" name="bib_number" id="bib_number" class="form-control" placeholder="e.g. 101" min="1">
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="registration_status">Initial Registration Status:</label>
+            <select name="registration_status" id="registration_status" class="form-control">
+                <option value="Pending" selected>Pending (Requires Approval)</option>
+                <option value="Approved">Approved</option>
+            </select>
+        </div>
+
+        <div style="display: flex; gap: 1rem; margin-top: 1.75rem;">
+            <button type="submit" class="btn btn-primary">Complete Pair Registration &rarr;</button>
+            <a href="{{ url_for('index') }}" class="btn btn-outline-dark">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

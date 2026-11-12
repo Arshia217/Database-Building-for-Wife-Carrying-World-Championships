@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}Approved Entries | Eukonkanto{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Approved Entries per Edition</h1>
+        <p class="page-subtitle">Feature 1 (Read Query): View confirmed entries for a selected edition year.</p>
+    </div>
+</div>
+
+<div class="card" style="margin-bottom: 1.5rem;">
+    <form method="GET" action="{{ url_for('approved_entries') }}" class="form-inline">
+        <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" for="edition_year">Edition Year:</label>
+            <select name="edition_year" id="edition_year" class="form-control" onchange="this.form.submit()">
+                {% for ed in editions %}
+                    <option value="{{ ed.edition_year }}" {% if ed.edition_year == selected_year %}selected{% endif %}>
+                        {{ ed.edition_year }} ({{ ed.edition_status }} &bull; {{ ed.venue }})
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" for="category_id">Category:</label>
+            <select name="category_id" id="category_id" class="form-control" onchange="this.form.submit()">
+                <option value="">All Categories</option>
+                {% for cat in categories %}
+                    <option value="{{ cat.category_id }}" {% if cat.category_id == selected_category %}selected{% endif %}>
+                        {{ cat.category_name }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+        <button type="submit" class="btn btn-secondary">Filter</button>
+    </form>
+</div>
+
+<div class="table-container">
+    <table>
+        <thead>
+            <tr>
+                <th>Bib #</th>
+                <th>Category</th>
+                <th>Competitors / Team</th>
+                <th>Country</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for entry in entries %}
+            <tr>
+                <td><strong>{{ entry.bib_number if entry.bib_number else 'N/A' }}</strong></td>
+                <td>{{ entry.category_name }}</td>
+                <td>
+                    {% if entry.team_name %}
+                        <strong>{{ entry.team_name }}</strong>
+                    {% else %}
+                        <div><strong>Carrier:</strong> {{ entry.carrier_name or 'N/A' }}</div>
+                        <div><strong>Carried:</strong> {{ entry.carried_name or 'N/A' }}</div>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if entry.carrier_country %}
+                        {{ entry.carrier_country }}
+                        {% if entry.carried_country and entry.carried_country != entry.carrier_country %}
+                            / {{ entry.carried_country }}
+                        {% endif %}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td><span class="badge badge-approved">{{ entry.registration_status }}</span></td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 2rem;">
+                    No approved entries found for edition {{ selected_year }}.
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

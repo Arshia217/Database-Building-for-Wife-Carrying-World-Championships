@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block title %}Manage Pending Entries | Wife Carrying Database{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Manage & Delete Pending Entries</h1>
+        <p class="page-subtitle">Feature 8 (Write 3 - Delete): Safely delete pending entries. Approved and raced entries are protected.</p>
+    </div>
+    <a href="{{ url_for('register_pair') }}" class="btn btn-primary btn-sm">+ Register New Pair</a>
+</div>
+
+<div class="table-container">
+    <table>
+        <thead>
+            <tr>
+                <th>Entry ID</th>
+                <th>Edition</th>
+                <th>Category</th>
+                <th>Bib #</th>
+                <th>Competitors</th>
+                <th>Status</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for entry in pending_entries %}
+            <tr>
+                <td><strong>#{{ entry.entry_id }}</strong></td>
+                <td>{{ entry.edition_year }}</td>
+                <td>{{ entry.category_name }}</td>
+                <td>{{ entry.bib_number if entry.bib_number else 'N/A' }}</td>
+                <td>
+                    {% if entry.team_name %}
+                        <strong>{{ entry.team_name }}</strong>
+                    {% else %}
+                        <div><strong>Carrier:</strong> {{ entry.carrier_name or 'N/A' }}</div>
+                        <div><strong>Carried:</strong> {{ entry.carried_name or 'N/A' }}</div>
+                    {% endif %}
+                </td>
+                <td><span class="badge badge-pending">{{ entry.registration_status }}</span></td>
+                <td>
+                    <form method="POST" action="{{ url_for('delete_entry', entry_id=entry.entry_id) }}" onsubmit="return confirm('Are you sure you want to delete pending entry #{{ entry.entry_id }}?');">
+                        <button type="submit" class="btn btn-danger btn-sm">Delete Entry</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 3rem;">
+                    <div style="font-size: 2rem; margin-bottom: 0.5rem;">📋</div>
+                    <strong>No pending entries found.</strong>
+                    <p style="margin-top: 0.5rem; font-size: 0.9rem;">
+                        You can <a href="{{ url_for('register_pair') }}" style="color: var(--brand-red); font-weight: 600;">register a new pair</a> with status "Pending" to test this deletion operation.
+                    </p>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

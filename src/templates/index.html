@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+
+{% block title %}Front Page | Wife Carrying World Championships 2027{% endblock %}
+
+{% block content %}
+<!-- Hero Section styled according to eukonkanto.fi/en/front-page/ -->
+<section class="hero">
+    <div class="hero-content">
+        <div class="hero-tag">
+            <span>🇫🇮</span> Sonkajärvi, Finland &bull; 2–3 July 2027
+        </div>
+        <h1 class="hero-title">Wife-Carrying World Championships</h1>
+        <p class="hero-subtitle">
+            Welcome to the official database and management portal of Eukonkanto. Explore race results, participating competitors, category statistics, and register pairs for the upcoming 2027 championship.
+        </p>
+        <div class="hero-actions">
+            <a href="{{ url_for('register_pair') }}" class="btn btn-primary">Register for 2027 Race &rarr;</a>
+            <a href="{{ url_for('approved_entries') }}" class="btn btn-outline">Browse Competitors</a>
+            <a href="{{ url_for('heat_results') }}" class="btn btn-outline">View Heat Results</a>
+        </div>
+
+        <div class="hero-stats">
+            <div class="hero-stat-item">
+                <h4>87</h4>
+                <p>Total Entries</p>
+            </div>
+            <div class="hero-stat-item">
+                <h4>23</h4>
+                <p>Nations Represented</p>
+            </div>
+            <div class="hero-stat-item">
+                <h4>253.5 m</h4>
+                <p>Official Sand Track</p>
+            </div>
+            <div class="hero-stat-item">
+                <h4>1 m</h4>
+                <p>Deep Water Obstacle</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Read Queries Section -->
+<div class="page-header">
+    <div>
+        <h2 class="page-title">Championship Records & Results</h2>
+        <p class="page-subtitle">5 Read Queries & Analytics: View entrants, search competitors, and inspect heat timings.</p>
+    </div>
+</div>
+
+<div class="grid">
+    <div class="card">
+        <div class="card-icon">📋</div>
+        <h3 class="card-title">1. Approved Competitors</h3>
+        <p class="card-desc">Browse approved entrants across editions with bib numbers, categories, and competitor names.</p>
+        <a href="{{ url_for('approved_entries') }}" class="btn btn-secondary btn-sm">View Entrants &rarr;</a>
+    </div>
+
+    <div class="card">
+        <div class="card-icon">🔍</div>
+        <h3 class="card-title">2. Competitor Name Search</h3>
+        <p class="card-desc">Search participants by partial or full name to view their historical editions, categories, and roles.</p>
+        <a href="{{ url_for('search') }}" class="btn btn-secondary btn-sm">Search Names &rarr;</a>
+    </div>
+
+    <div class="card">
+        <div class="card-icon">📊</div>
+        <h3 class="card-title">3. Category Distribution</h3>
+        <p class="card-desc">Inspect total, approved, and pending registration numbers breakdown across competition categories.</p>
+        <a href="{{ url_for('categories_stats') }}" class="btn btn-secondary btn-sm">View Categories &rarr;</a>
+    </div>
+
+    <div class="card">
+        <div class="card-icon">⏱️</div>
+        <h3 class="card-title">4. Heat Results & Deltas</h3>
+        <p class="card-desc">Live heat result sheet showing raw times, penalties, final computed times, and time differences to the winner.</p>
+        <a href="{{ url_for('heat_results') }}" class="btn btn-secondary btn-sm">Heat Results &rarr;</a>
+    </div>
+
+    <div class="card">
+        <div class="card-icon">📈</div>
+        <h3 class="card-title">5. Average Finish Times</h3>
+        <p class="card-desc">Statistical analytics computing average, fastest, and slowest finish times per category across editions.</p>
+        <a href="{{ url_for('categories_stats') }}#averages" class="btn btn-secondary btn-sm">View Analysis &rarr;</a>
+    </div>
+
+    <div class="card" style="border-left: 4px solid var(--brand-red);">
+        <div class="card-icon">📜</div>
+        <h3 class="card-title">Track & Official Rules</h3>
+        <p class="card-desc">Carried person minimum weight: 49 kg (otherwise weighted backpack is worn). Track length: 253.5 m.</p>
+        <a href="https://eukonkanto.fi/en/competition-track-and-rules/" target="_blank" rel="noopener" class="btn btn-outline-dark btn-sm">Rules Guide &rarr;</a>
+    </div>
+</div>
+
+<!-- Write Operations Section -->
+<div class="page-header" style="margin-top: 1rem;">
+    <div>
+        <h2 class="page-title">Championship Administration</h2>
+        <p class="page-subtitle">3 Write Operations: Register pairs, update nationality, and manage pending applications.</p>
+    </div>
+</div>
+
+<div class="grid">
+    <div class="card">
+        <div class="card-icon" style="background-color: #fee2e2; color: var(--brand-red);">✍️</div>
+        <h3 class="card-title">1. Register a Pair (Create)</h3>
+        <p class="card-desc">Register a new pair for 2027. Atomically checks category offering, participant age, and weight restrictions.</p>
+        <a href="{{ url_for('register_pair') }}" class="btn btn-primary btn-sm">Register Pair &rarr;</a>
+    </div>
+
+    <div class="card">
+        <div class="card-icon" style="background-color: #e0f2fe; color: var(--brand-navy);">🌍</div>
+        <h3 class="card-title">2. Change Country (Update)</h3>
+        <p class="card-desc">Update a competitor's country of representation with immediate foreign key validation in the database.</p>
+        <a href="{{ url_for('edit_participant') }}" class="btn btn-secondary btn-sm">Update Country &rarr;</a>
+    </div>
+
+    <div class="card">
+        <div class="card-icon" style="background-color: #fef3c7; color: #b45309;">🗑️</div>
+        <h3 class="card-title">3. Manage Pending (Delete)</h3>
+        <p class="card-desc">Review pending registrations and safely delete pending entries while preserving confirmed and raced records.</p>
+        <a href="{{ url_for('manage_entries') }}" class="btn btn-danger btn-sm">Manage Pending &rarr;</a>
+    </div>
+</div>
+
+<!-- Story of Robber Ronkainen Card -->
+<div class="card" style="margin-top: 1.5rem; background: linear-gradient(to right, #ffffff, #f7f9f7); border-left: 4px solid var(--brand-navy);">
+    <h3 style="color: var(--brand-navy); margin-bottom: 0.5rem; font-size: 1.3rem;">Do you know where wife carrying originated from?</h3>
+    <p style="color: var(--text-muted); font-size: 0.95rem; line-height: 1.6;">
+        The legend of Wife Carrying dates back to the late 1800s and the infamous robber <strong>Her Rosvo-Ronkainen</strong>. Ronkainen accepted only men into his band who proved their worth in an arduous track test carrying heavy sacks or live animals through the forests of Sonkajärvi. Today, couples from all over the world travel to Finland to test their grit, agility, and humor on the world-famous 253.5-meter obstacle course!
+    </p>
+</div>
+{% endblock %}

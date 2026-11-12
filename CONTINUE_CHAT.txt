@@ -1,0 +1,55 @@
+# =====================================================================
+# How to Continue / Resume This Antigravity Agent Session
+# =====================================================================
+
+Conversation ID: 2c3edb57-41da-4c30-8e8a-13ca78853c61
+Project: Wife Carrying World Championships (Eukonkanto) Database & Web App
+Workspace: /home/kartikeya/Desktop/dna/phase-4/Database-Building-for-Wife-Carrying-World-Championships
+
+---------------------------------------------------------------------
+1. Resuming on THIS Laptop:
+---------------------------------------------------------------------
+Open your terminal in the project directory and run:
+
+    agy --conversation 2c3edb57-41da-4c30-8e8a-13ca78853c61
+
+Or to continue the latest session in this folder:
+
+    agy -c
+
+---------------------------------------------------------------------
+2. Can a DIFFERENT Laptop Resume This Exact Conversation?
+---------------------------------------------------------------------
+By default, Antigravity CLI sessions are stored LOCALLY on this machine 
+(not in a shared cloud database). 
+
+To continue this exact conversation on another laptop, choose one of these options:
+
+OPTION A (Transfer the Session Files to the Other Laptop):
+1. Copy the code repository to the new laptop.
+2. Copy the Antigravity conversation files from this laptop to the matching 
+   paths on the new laptop:
+   - Database:
+     ~/.gemini/antigravity-cli/conversations/2c3edb57-41da-4c30-8e8a-13ca78853c61.db*
+   - Brain / Artifacts directory:
+     ~/.gemini/antigravity-cli/brain/2c3edb57-41da-4c30-8e8a-13ca78853c61/
+3. On the new laptop, run:
+   agy --conversation 2c3edb57-41da-4c30-8e8a-13ca78853c61
+
+OPTION B (Remote Access via SSH):
+Keep the session on this laptop and connect from the other laptop via SSH:
+    ssh user@this-laptop-ip
+    cd ~/Desktop/dna/phase-4/Database-Building-for-Wife-Carrying-World-Championships
+    agy --conversation 2c3edb57-41da-4c30-8e8a-13ca78853c61
+
+OPTION C (Standard Team Collaboration - Start Fresh Session):
+If another person simply clones the git repository, all project code, 
+schema, population scripts, and comprehensive documentation in README.md 
+are already in the repo. Any new Antigravity session (`agy`) in that folder 
+will read README.md and pick up the work with complete context.
+
+---------------------------------------------------------------------
+3. Application Run Command:
+---------------------------------------------------------------------
+    uv run python src/app.py
+    # Application runs at: http://localhost:5000

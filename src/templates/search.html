@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block title %}Participant Search | Wife Carrying Database{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Competitor Name Search</h1>
+        <p class="page-subtitle">Feature 2 (Read Query): Search across all participants and view registration history.</p>
+    </div>
+</div>
+
+<div class="form-card" style="margin-bottom: 2rem;">
+    <form method="GET" action="{{ url_for('search') }}" class="form-inline">
+        <div class="form-group" style="margin-bottom: 0; flex: 1;">
+            <label class="form-label" for="q">Competitor Name (First or Last):</label>
+            <input type="text" name="q" id="q" class="form-control" placeholder="e.g. Taisto, Katja, Vytautas, Joni, Teemu..." value="{{ query }}">
+        </div>
+        <button type="submit" class="btn btn-secondary">Search Competitors</button>
+        {% if query %}
+            <a href="{{ url_for('search') }}" class="btn btn-outline-dark">Clear</a>
+        {% endif %}
+    </form>
+</div>
+
+{% if query %}
+<div class="table-container">
+    <table>
+        <thead>
+            <tr>
+                <th>Competitor</th>
+                <th>Country</th>
+                <th>Edition</th>
+                <th>Category</th>
+                <th>Bib #</th>
+                <th>Role</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in results %}
+            <tr>
+                <td><strong>{{ row.full_name }}</strong></td>
+                <td>{{ row.country_name }}</td>
+                <td>{{ row.edition_year or 'N/A' }}</td>
+                <td>{{ row.category_name or 'N/A' }}</td>
+                <td>{{ row.bib_number if row.bib_number else 'N/A' }}</td>
+                <td>{{ row.participant_role or 'N/A' }}</td>
+                <td>
+                    {% if row.registration_status == 'Approved' %}
+                        <span class="badge badge-approved">Approved</span>
+                    {% elif row.registration_status == 'Pending' %}
+                        <span class="badge badge-pending">Pending</span>
+                    {% elif row.registration_status %}
+                        <span class="badge badge-withdrawn">{{ row.registration_status }}</span>
+                    {% else %}
+                        <span style="color: var(--text-muted);">&mdash;</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 3rem;">
+                    No competitors found matching "<strong>{{ query }}</strong>".
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+{% endblock %}

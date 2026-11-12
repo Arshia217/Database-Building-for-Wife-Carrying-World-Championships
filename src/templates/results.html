@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+
+{% block title %}Heat Results | Eukonkanto{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Heat Result Sheet with Time Differences</h1>
+        <p class="page-subtitle">Feature 4 (Read Query): Heat timings, penalties, final computed times, ranks, and relative time deltas.</p>
+    </div>
+</div>
+
+<div class="card" style="margin-bottom: 1.5rem;">
+    <form method="GET" action="{{ url_for('heat_results') }}" class="form-inline">
+        <div class="form-group" style="margin-bottom: 0; min-width: 300px;">
+            <label class="form-label" for="heat_key">Select Race Heat:</label>
+            <select name="heat_key" id="heat_key" class="form-control" onchange="this.form.submit()">
+                {% for h in heats %}
+                    {% set key = h.edition_year ~ '-' ~ h.race_no ~ '-' ~ h.heat_no %}
+                    <option value="{{ key }}" {% if key == selected_key %}selected{% endif %}>
+                        Edition {{ h.edition_year }} &bull; {{ h.category_name }} (Race {{ h.race_no }}, Heat {{ h.heat_no }})
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+        <button type="submit" class="btn btn-secondary">Load Results</button>
+    </form>
+</div>
+
+<div class="table-container">
+    <table>
+        <thead>
+            <tr>
+                <th>Rank</th>
+                <th>Bib #</th>
+                <th>Competitors / Team</th>
+                <th>Raw Time</th>
+                <th>Penalty</th>
+                <th>Final Time</th>
+                <th>Time Diff (&Delta;)</th>
+                <th>Official</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in results %}
+            <tr {% if r.rank == 1 %}style="background-color: #fefce8;"{% endif %}>
+                <td>
+                    {% if r.rank == 1 %}
+                        <span class="badge badge-gold">🥇 1st Place</span>
+                    {% elif r.rank %}
+                        <strong>#{{ r.rank }}</strong>
+                    {% else %}
+                        &mdash;
+                    {% endif %}
+                </td>
+                <td><strong>{{ r.bib_number if r.bib_number else 'N/A' }}</strong></td>
+                <td>
+                    {% if r.team_name %}
+                        <strong>{{ r.team_name }}</strong>
+                    {% else %}
+                        <div><strong>Carrier:</strong> {{ r.carrier_name or 'N/A' }}</div>
+                        <div><strong>Carried:</strong> {{ r.carried_name or 'N/A' }}</div>
+                    {% endif %}
+                </td>
+                <td>{{ r.raw_time }}s</td>
+                <td>{{ r.penalty_seconds }}s</td>
+                <td><strong>{{ r.final_time }}s</strong></td>
+                <td>
+                    {% if r.time_diff is not none %}
+                        {% if r.time_diff == 0 %}
+                            <strong style="color: var(--success-color);">WINNER</strong>
+                        {% else %}
+                            <span style="color: var(--danger-color);">+{{ r.time_diff }}s</span>
+                        {% endif %}
+                    {% else %}
+                        &mdash;
+                    {% endif %}
+                </td>
+                <td>{{ r.official_name if r.official_name else '(Not recorded)' }}</td>
+                <td>
+                    {% if r.result_status == 'Finished' %}
+                        <span class="badge badge-approved">Finished</span>
+                    {% else %}
+                        <span class="badge badge-withdrawn">{{ r.result_status }}</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="9" style="text-align: center; color: var(--text-muted); padding: 2rem;">
+                    No results recorded for this heat yet.
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

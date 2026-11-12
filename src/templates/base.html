@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Wife Carrying World Championships{% endblock %} | Eukonkanto Sonkajärvi</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='logo.png') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <!-- Top Announcement Bar -->
+    <div class="top-bar">
+        <span class="edition-badge">Next Event</span>
+        <strong>Wife Carrying World Championships 2027</strong> &bull; Sonkajärvi, Finland, 2–3 July 2027 &bull; Official Database System
+    </div>
+
+    <!-- Official Header & Navbar -->
+    <header>
+        <nav class="navbar">
+            <a href="{{ url_for('index') }}" class="brand-wrapper">
+                <img src="{{ url_for('static', filename='logo.png') }}" alt="Eukonkanto Logo" class="brand-logo">
+                <div class="brand-text">
+                    <span class="brand-title">Eukonkanto</span>
+                    <span class="brand-subtitle">World Championships</span>
+                </div>
+            </a>
+            <ul class="nav-links">
+                <li><a href="{{ url_for('approved_entries') }}" class="{% if request.endpoint == 'approved_entries' %}active{% endif %}">Approved Entries</a></li>
+                <li><a href="{{ url_for('search') }}" class="{% if request.endpoint == 'search' %}active{% endif %}">Name Search</a></li>
+                <li><a href="{{ url_for('categories_stats') }}" class="{% if request.endpoint == 'categories_stats' %}active{% endif %}">Category & Time Stats</a></li>
+                <li><a href="{{ url_for('heat_results') }}" class="{% if request.endpoint == 'heat_results' %}active{% endif %}">Heat Results</a></li>
+                <li><a href="{{ url_for('edit_participant') }}" class="{% if request.endpoint == 'edit_participant' %}active{% endif %}">Update Country</a></li>
+                <li><a href="{{ url_for('manage_entries') }}" class="{% if request.endpoint == 'manage_entries' %}active{% endif %}">Manage Pending</a></li>
+                <li><a href="{{ url_for('register_pair') }}" class="btn btn-primary btn-sm nav-cta">Register Pair &rarr;</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <!-- Main Container -->
+    <main class="container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="alert-container">
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ category }}">
+                            <span>{{ message }}</span>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Partners / Host Municipality Section -->
+    <section class="partners-section">
+        <h4 class="partners-title">In Cooperation With / Host Municipality</h4>
+        <div class="partners-logos">
+            <img src="{{ url_for('static', filename='sonkajarvi_logo.png') }}" alt="Sonkajärvi Municipality" class="partner-logo">
+            <span style="font-family: 'Prompt', sans-serif; font-weight: 700; color: #16284e; font-size: 1.1rem; letter-spacing: 0.05em;">SONKAJÄRVI</span>
+            <span style="font-family: 'Prompt', sans-serif; font-weight: 700; color: #e10075; font-size: 1.1rem; letter-spacing: 0.05em;">DNA</span>
+            <span style="font-family: 'Prompt', sans-serif; font-weight: 700; color: #011835; font-size: 1.1rem; letter-spacing: 0.05em;">OLVI</span>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+        <div class="footer-content">
+            <div>
+                <p class="footer-brand">Wife Carrying World Championships (Eukonkanto)</p>
+                <p style="font-size: 0.8rem; margin-top: 0.25rem;">Rutakontie 21, 74300 Sonkajärvi, Finland &bull; Course: Data and Applications (Team Tangled)</p>
+            </div>
+            <div class="footer-links">
+                <a href="https://eukonkanto.fi/en/front-page/" target="_blank" rel="noopener">Official Website</a>
+                <a href="https://eukonkanto.fi/en/competition-track-and-rules/" target="_blank" rel="noopener">Track & Rules</a>
+                <a href="{{ url_for('index') }}">System Dashboard</a>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block title %}Category & Performance Analytics | Eukonkanto{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Category & Performance Analytics</h1>
+        <p class="page-subtitle">Features 3 & 5 (Read Queries): Entry distribution by category and statistical final times.</p>
+    </div>
+</div>
+
+<div class="card" style="margin-bottom: 2rem;">
+    <form method="GET" action="{{ url_for('categories_stats') }}" class="form-inline">
+        <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" for="edition_year">Filter by Championship Edition:</label>
+            <select name="edition_year" id="edition_year" class="form-control" onchange="this.form.submit()">
+                <option value="">All Editions</option>
+                {% for ed in editions %}
+                    <option value="{{ ed.edition_year }}" {% if ed.edition_year == selected_year %}selected{% endif %}>
+                        Edition {{ ed.edition_year }} ({{ ed.edition_status }})
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+        <button type="submit" class="btn btn-secondary">Apply Filter</button>
+    </form>
+</div>
+
+<div class="page-header" style="border: none; margin-bottom: 1rem;">
+    <h2 class="page-title" style="font-size: 1.4rem;">Feature 3: Entries per Category Breakdown</h2>
+</div>
+
+<div class="table-container">
+    <table>
+        <thead>
+            <tr>
+                <th>Edition</th>
+                <th>Category</th>
+                <th>Total Entries</th>
+                <th>Approved</th>
+                <th>Pending</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in breakdown %}
+            <tr>
+                <td><strong>{{ item.edition_year }}</strong></td>
+                <td>{{ item.category_name }}</td>
+                <td><strong>{{ item.total_entries }}</strong></td>
+                <td><span class="badge badge-approved">{{ item.approved_entries }}</span></td>
+                <td>
+                    {% if item.pending_entries > 0 %}
+                        <span class="badge badge-pending">{{ item.pending_entries }}</span>
+                    {% else %}
+                        <span style="color: var(--text-muted);">0</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 2rem;">No data available.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div id="averages"></div>
+<div class="page-header" style="border: none; margin-bottom: 1rem; margin-top: 2rem;">
+    <h2 class="page-title" style="font-size: 1.4rem;">Feature 5: Average Final Time by Category</h2>
+</div>
+
+<div class="table-container">
+    <table>
+        <thead>
+            <tr>
+                <th>Category</th>
+                <th>Finishes Recorded</th>
+                <th>Average Time (s)</th>
+                <th>Fastest Time (s)</th>
+                <th>Slowest Time (s)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for avg in averages %}
+            <tr>
+                <td><strong>{{ avg.category_name }}</strong></td>
+                <td>{{ avg.total_finishes }}</td>
+                <td><strong style="color: var(--brand-red); font-size: 1.05rem;">{{ avg.avg_final_time }}s</strong></td>
+                <td><strong style="color: var(--brand-green);">{{ avg.fastest_final_time }}s</strong></td>
+                <td>{{ avg.slowest_final_time }}s</td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 2rem;">
+                    No race finishes recorded for this selection.
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
