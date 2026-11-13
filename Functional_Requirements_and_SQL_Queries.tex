@@ -1,0 +1,383 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[margin=0.65in]{geometry}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{fancyhdr}
+\usepackage{tcolorbox}
+\usepackage{hyperref}
+\usepackage{titlesec}
+\usepackage{enumitem}
+
+\setlength{\headheight}{14pt}
+
+% Color palette
+\definecolor{brandnavy}{RGB}{20, 45, 85}
+\definecolor{brandblue}{RGB}{29, 78, 216}
+\definecolor{darkgray}{RGB}{30, 41, 59}
+\definecolor{codebg}{RGB}{248, 250, 252}
+\definecolor{codeframe}{RGB}{203, 213, 225}
+\definecolor{stringgreen}{RGB}{21, 128, 61}
+\definecolor{commentgray}{RGB}{100, 116, 139}
+
+% Listings setup for MySQL
+\lstdefinelanguage{MySQL}{
+  keywords={SELECT, FROM, WHERE, AND, OR, JOIN, LEFT, RIGHT, INNER, ON, GROUP, BY, ORDER, ASC, DESC, INSERT, INTO, VALUES, UPDATE, SET, DELETE, CASE, WHEN, THEN, ELSE, END, AS, OVER, MIN, MAX, AVG, COUNT, ROUND, COALESCE, CONCAT_WS, LIKE, IN, IS, NULL, NOT, IGNORE},
+  sensitive=false,
+  comment=[l]{--},
+  morecomment=[s]{/*}{*/},
+  string=[b]',
+  morestring=[b]"
+}
+
+\lstset{
+  language=MySQL,
+  basicstyle=\ttfamily\scriptsize,
+  keywordstyle=\bfseries\color{brandnavy},
+  stringstyle=\color{stringgreen},
+  commentstyle=\itshape\color{commentgray},
+  backgroundcolor=\color{codebg},
+  frame=single,
+  rulecolor=\color{codeframe},
+  breaklines=true,
+  breakatwhitespace=true,
+  showstringspaces=false,
+  tabsize=2,
+  captionpos=b,
+  xleftmargin=4pt,
+  xrightmargin=4pt,
+  aboveskip=2.5pt,
+  belowskip=2.5pt,
+  lineskip=0.1pt
+}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=brandblue,
+  urlcolor=brandblue,
+  pdftitle={Section 4.3 Functional Requirements and SQL Queries - Wife Carrying World Championships},
+  pdfauthor={Team 20 (Team Tangled)}
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small \textbf{Wife Carrying World Championships} (Eukonkanto)}
+\fancyhead[R]{\small \textbf{Section 4.3 Functional Requirements Implementation}}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.5pt}
+\renewcommand{\footrulewidth}{0.5pt}
+
+\titleformat{\section}{\large\bfseries\color{brandnavy}}{\thesection}{0.8em}{}[\titlerule]
+\titleformat{\subsection}{\normalsize\bfseries\color{brandblue}}{\thesubsection}{0.8em}{}
+\titlespacing*{\section}{0pt}{7pt}{3pt}
+\titlespacing*{\subsection}{0pt}{5pt}{2pt}
+
+\begin{document}
+
+% =====================================================================
+% PAGE 1: TITLE, COMPLIANCE MATRIX & ENVIRONMENT
+% =====================================================================
+\begin{center}
+  {\LARGE \textbf{Database \& Web Application for Eukonkanto}}\\[0.2em]
+  {\Large \textbf{Wife Carrying World Championships (Sonkajärvi, Finland)}}\\[0.4em]
+  {\large \textbf{Section 4.3 Functional Requirements \& SQL Queries Specification}}\\[0.6em]
+  \textbf{Team 20 (Team Tangled)} \quad$\vert$\quad \textbf{Course: Data and Applications} \quad$\vert$\quad \textbf{Project Phase 4}\\[0.3em]
+  \textit{Paradigm: Relational \quad$\vert$\quad DBMS: MariaDB 11.8 / MySQL 8.0 (InnoDB) \quad$\vert$\quad Stack: Python 3, Flask, PyMySQL}
+\end{center}
+
+\vspace{0.2em}
+\hrule height 1.2pt
+\vspace{0.5em}
+
+\begin{tcolorbox}[colback=blue!3!white, colframe=brandnavy, title=\textbf{Specification 4.3 Requirement Compliance}, fonttitle=\bfseries]
+According to \textbf{Section 4.3 (Functional Requirements Implementation)}:
+\begin{quote}
+\textit{“You must implement at least \textbf{five distinct query (read) operations} and \textbf{three distinct update (write) operations}. The write operations must include at least one create, one update and one delete.”}
+\end{quote}
+All operations are implemented in the Python/Flask web portal using raw, parameterized SQL queries via PyMySQL and executed against the normalized 3NF schema. Multi-statement writes are protected by atomic ACID transactions.
+\end{tcolorbox}
+
+\vspace{0.2em}
+
+\section{Summary of Implemented Features \& SQL Operations}
+
+\begin{table}[h!]
+\centering
+\footnotesize
+\begin{tabularx}{\textwidth}{@{}l l l l l X@{}}
+\toprule
+\textbf{\#} & \textbf{Req. Type} & \textbf{SQL Command} & \textbf{Feature Name} & \textbf{URL / Route} & \textbf{Key Database Technique} \\ \midrule
+\textbf{R1} & Read 1 & \texttt{SELECT} & Approved Entries & \texttt{/entries} & 6-table \texttt{JOIN}, \texttt{CONCAT\_WS}, parameterized filtering \\
+\textbf{R2} & Read 2 & \texttt{SELECT} & Competitor Search & \texttt{/search} & Wildcard \texttt{LIKE \%s} across concatenated names \\
+\textbf{R3} & Read 3 & \texttt{SELECT} & Category Breakdown & \texttt{/categories} & \texttt{COUNT}, conditional \texttt{SUM(CASE WHEN ...)} \\
+\textbf{R4} & Read 4 & \texttt{SELECT} & Heat Result Sheet & \texttt{/results} & Window function \texttt{MIN(...) OVER ()}, delta calc \\
+\textbf{R5} & Read 5 & \texttt{SELECT} & Category Avg Times & \texttt{/categories\#avg} & Statistical aggregation (\texttt{AVG}, \texttt{MIN}, \texttt{MAX}) \\
+\midrule
+\textbf{W1} & Write 1 (\textbf{Create}) & \texttt{INSERT} & Register a Pair & \texttt{/register} & Atomic multi-table \texttt{INSERT} across 4 tables \\
+\textbf{W2} & Write 2 (\textbf{Update}) & \texttt{UPDATE} & Update Country & \texttt{/participants/..} & Parameterized \texttt{UPDATE} with FK validation \\
+\textbf{W3} & Write 3 (\textbf{Delete}) & \texttt{DELETE} & Delete Pending Entry & \texttt{/entries/manage} & Cascaded \texttt{DELETE} with state integrity guard \\ \bottomrule
+\end{tabularx}
+\end{table}
+
+\vspace{0.2em}
+
+\begin{tcolorbox}[colback=gray!5!white, colframe=darkgray, title=\textbf{Database Environment \& Connection Architecture}, fonttitle=\bfseries\small]
+\small
+\begin{itemize}[leftmargin=1.5em, itemsep=1.5pt, topsep=1pt]
+  \item \textbf{DBMS Engine:} MariaDB 11.8.8 / MySQL 8.0 (InnoDB engine, \texttt{utf8mb4} character set).
+  \item \textbf{Transaction Manager:} \texttt{src/db.py} provides an atomic \texttt{transaction()} context manager with \texttt{autocommit=False} that automatically commits on success and rolls back on any constraint or business violation.
+  \item \textbf{Security \& Sanitization:} 100\% of user inputs are passed as parameterized tuples (\texttt{\%s}), completely neutralizing SQL injection vectors.
+  \item \textbf{Data Completeness:} Uses \texttt{LEFT JOIN} and \texttt{CONCAT\_WS} to handle nullable attributes (such as unrecorded official IDs and competitors with single-word names) without data loss.
+\end{itemize}
+\end{tcolorbox}
+
+\newpage
+
+% =====================================================================
+% PAGE 2: READ QUERIES R1, R2, R3
+% =====================================================================
+\section{Query (Read) Operations Implementation}
+
+\subsection{Feature R1: Approved Entries per Edition (Read Operation 1)}
+\begin{itemize}[leftmargin=1.5em, itemsep=0.5pt, topsep=0.5pt]
+  \item \textbf{Route:} \texttt{GET /entries} \quad$\vert$\quad \textbf{Function:} \texttt{query\_approved\_entries(edition\_year, category\_id)}
+  \item \textbf{Description:} Filters confirmed competitors by edition and category. Joins 6 tables using \texttt{CONCAT\_WS} for participant names.
+\end{itemize}
+
+\begin{lstlisting}
+SELECT 
+    ce.entry_id, ce.bib_number, ce.edition_year, ce.registration_status, ce.registration_time,
+    c.category_name, pe.carrier_id,
+    CONCAT_WS(' ', p1.first_name, p1.last_name) AS carrier_name, co1.country_name AS carrier_country,
+    pe.carried_id,
+    CONCAT_WS(' ', p2.first_name, p2.last_name) AS carried_name, co2.country_name AS carried_country,
+    te.team_name
+FROM competition_entry ce
+JOIN category c ON ce.category_id = c.category_id
+LEFT JOIN pair_entry pe ON ce.entry_id = pe.entry_id
+LEFT JOIN participant p1 ON pe.carrier_id = p1.participant_id
+LEFT JOIN country co1 ON p1.country_code = co1.country_code
+LEFT JOIN participant p2 ON pe.carried_id = p2.participant_id
+LEFT JOIN country co2 ON p2.country_code = co2.country_code
+LEFT JOIN team_entry te ON ce.entry_id = te.entry_id
+WHERE ce.edition_year = %s AND ce.registration_status = 'Approved'
+  AND (%s IS NULL OR ce.category_id = %s)
+ORDER BY ce.bib_number IS NULL, ce.bib_number, ce.entry_id;
+\end{lstlisting}
+
+\subsection{Feature R2: Participant Name Search (Read Operation 2)}
+\begin{itemize}[leftmargin=1.5em, itemsep=0.5pt, topsep=0.5pt]
+  \item \textbf{Route:} \texttt{GET /search} \quad$\vert$\quad \textbf{Function:} \texttt{query\_name\_search(name\_fragment)}
+  \item \textbf{Description:} Wildcard pattern matching (\texttt{LIKE \%s}) across full names, displaying nationality, editions, categories, and roles.
+\end{itemize}
+
+\begin{lstlisting}
+SELECT 
+    p.participant_id, CONCAT_WS(' ', p.first_name, p.last_name) AS full_name,
+    p.first_name, p.last_name, co.country_name,
+    ce.entry_id, ce.edition_year, ce.bib_number, c.category_name,
+    pi.participant_role, ce.registration_status
+FROM participant p
+JOIN country co ON p.country_code = co.country_code
+LEFT JOIN participates_in pi ON p.participant_id = pi.participant_id
+LEFT JOIN competition_entry ce ON pi.entry_id = ce.entry_id
+LEFT JOIN category c ON ce.category_id = c.category_id
+WHERE CONCAT_WS(' ', p.first_name, p.last_name) LIKE %s
+ORDER BY p.participant_id, ce.edition_year DESC;
+\end{lstlisting}
+
+\subsection{Feature R3: Entries per Category Breakdown (Read Operation 3)}
+\begin{itemize}[leftmargin=1.5em, itemsep=0.5pt, topsep=0.5pt]
+  \item \textbf{Route:} \texttt{GET /categories} \quad$\vert$\quad \textbf{Function:} \texttt{query\_entries\_per\_category(edition\_year)}
+  \item \textbf{Description:} Aggregates total, approved, and pending registration volume per category for a given edition using conditional sums.
+\end{itemize}
+
+\begin{lstlisting}
+SELECT 
+    hc.edition_year, c.category_id, c.category_name,
+    COUNT(ce.entry_id) AS total_entries,
+    COALESCE(SUM(CASE WHEN ce.registration_status = 'Approved' THEN 1 ELSE 0 END), 0) AS approved_entries,
+    COALESCE(SUM(CASE WHEN ce.registration_status = 'Pending' THEN 1 ELSE 0 END), 0) AS pending_entries
+FROM has_category hc
+JOIN category c ON hc.category_id = c.category_id
+LEFT JOIN competition_entry ce 
+    ON hc.edition_year = ce.edition_year AND hc.category_id = ce.category_id
+WHERE (%s IS NULL OR hc.edition_year = %s)
+GROUP BY hc.edition_year, c.category_id, c.category_name
+ORDER BY hc.edition_year DESC, c.category_id;
+\end{lstlisting}
+
+\newpage
+
+% =====================================================================
+% PAGE 3: READ QUERIES R4, R5
+% =====================================================================
+\subsection{Feature R4: Heat Results \& Time Differences (Read Operation 4)}
+\begin{itemize}[leftmargin=1.5em, itemsep=0.5pt, topsep=0.5pt]
+  \item \textbf{Route:} \texttt{GET /results}
+  \item \textbf{Function:} \texttt{query\_heat\_result\_sheet(edition\_year, race\_no, heat\_no)} in \texttt{src/services.py}
+  \item \textbf{Description:} Computes final time (\texttt{raw\_time + penalty\_seconds}) and delta to winner via the window function \texttt{MIN(...) OVER ()}. Handles nullable officials with \texttt{LEFT JOIN}.
+\end{itemize}
+
+\begin{lstlisting}
+SELECT 
+    rr.edition_year, rr.race_no, rr.heat_no, rr.`rank`, rr.result_status,
+    ce.entry_id, ce.bib_number, te.team_name,
+    CONCAT_WS(' ', p1.first_name, p1.last_name) AS carrier_name,
+    CONCAT_WS(' ', p2.first_name, p2.last_name) AS carried_name,
+    rr.raw_time, rr.penalty_seconds,
+    CASE WHEN rr.result_status = 'Finished' THEN (rr.raw_time + rr.penalty_seconds) ELSE NULL END AS final_time,
+    CASE 
+        WHEN rr.result_status = 'Finished' THEN 
+            ROUND((rr.raw_time + rr.penalty_seconds) - 
+                  MIN(CASE WHEN rr.result_status = 'Finished' THEN (rr.raw_time + rr.penalty_seconds) END) OVER (), 3)
+        ELSE NULL 
+    END AS time_diff,
+    CONCAT_WS(' ', o.first_name, o.last_name) AS official_name
+FROM records_result rr
+JOIN competition_entry ce ON rr.entry_id = ce.entry_id
+LEFT JOIN pair_entry pe ON ce.entry_id = pe.entry_id
+LEFT JOIN participant p1 ON pe.carrier_id = p1.participant_id
+LEFT JOIN participant p2 ON pe.carried_id = p2.participant_id
+LEFT JOIN team_entry te ON ce.entry_id = te.entry_id
+LEFT JOIN official o ON rr.official_id = o.official_id
+WHERE rr.edition_year = %s AND rr.race_no = %s AND rr.heat_no = %s
+ORDER BY 
+    CASE WHEN rr.result_status = 'Finished' THEN 0 ELSE 1 END,
+    rr.`rank` IS NULL, rr.`rank`, final_time;
+\end{lstlisting}
+
+\subsection{Feature R5: Category Average Finish Times (Read Operation 5)}
+\begin{itemize}[leftmargin=1.5em, itemsep=0.5pt, topsep=0.5pt]
+  \item \textbf{Route:} \texttt{GET /categories\#averages} \quad$\vert$\quad \textbf{Function:} \texttt{query\_average\_final\_times(edition\_year)}
+  \item \textbf{Description:} Performs statistical aggregation across competition categories for finished entries, computing finisher count, average final time, fastest time, and slowest time.
+\end{itemize}
+
+\begin{lstlisting}
+SELECT 
+    c.category_id, c.category_name,
+    COUNT(rr.entry_id) AS total_finishes,
+    ROUND(AVG(rr.raw_time + rr.penalty_seconds), 3) AS avg_final_time,
+    ROUND(MIN(rr.raw_time + rr.penalty_seconds), 3) AS fastest_final_time,
+    ROUND(MAX(rr.raw_time + rr.penalty_seconds), 3) AS slowest_final_time
+FROM records_result rr
+JOIN competition_entry ce ON rr.entry_id = ce.entry_id
+JOIN category c ON ce.category_id = c.category_id
+WHERE rr.result_status = 'Finished'
+  AND (%s IS NULL OR rr.edition_year = %s)
+GROUP BY c.category_id, c.category_name
+ORDER BY avg_final_time ASC;
+\end{lstlisting}
+
+\newpage
+
+% =====================================================================
+% PAGE 4: WRITE OPERATIONS W1, W2
+% =====================================================================
+\section{Update (Write) Operations Implementation}
+
+\subsection{Feature W1: Register a Pair (Write Operation 1 --- Create)}
+\begin{itemize}[leftmargin=1.5em, itemsep=0.5pt, topsep=0.5pt]
+  \item \textbf{Route:} \texttt{POST /register} \quad$\vert$\quad \textbf{Function:} \texttt{write\_register\_pair(...)}
+  \item \textbf{Description:} Atomic multi-table insertion enrolling a pair for an edition. Enforces business rules: verifies category offering in \texttt{has\_category}, carrier $\neq$ carried, carrier age $\ge 40$ in the 40+ category, and inserts across subtype and relationship tables.
+\end{itemize}
+
+\begin{lstlisting}
+-- Step 1: Validate edition offers chosen category
+SELECT 1 FROM has_category WHERE edition_year = %s AND category_id = %s;
+
+-- Step 2: Validate participant eligibility and 40+ category carrier age
+SELECT category_name, minimum_age, min_carried_weight_kg FROM category WHERE category_id = %s;
+SELECT participant_id, first_name, last_name, date_of_birth, weight_kg 
+FROM participant WHERE participant_id IN (%s, %s);
+
+-- Step 3: Insert master competition entry record
+INSERT INTO competition_entry (edition_year, category_id, bib_number, registration_status)
+VALUES (%s, %s, %s, %s);
+
+-- Step 4: Insert pair_entry subtype using generated entry_id (cursor.lastrowid)
+INSERT INTO pair_entry (entry_id, carrier_id, carried_id)
+VALUES (%s, %s, %s);
+
+-- Step 5: Insert Carrier and Carried roles into participates_in
+INSERT INTO participates_in (entry_id, participant_id, participant_role)
+VALUES (%s, %s, 'Carrier');
+
+INSERT INTO participates_in (entry_id, participant_id, participant_role)
+VALUES (%s, %s, 'Carried');
+
+-- Step 6: Record participant-edition history in participates_in_edition
+INSERT IGNORE INTO participates_in_edition (participant_id, edition_year)
+VALUES (%s, %s), (%s, %s);
+\end{lstlisting}
+
+\subsection{Feature W2: Change Participant Country (Write Operation 2 --- Update)}
+\begin{itemize}[leftmargin=1.5em, itemsep=0.5pt, topsep=0.5pt]
+  \item \textbf{Route:} \texttt{POST /participants/update-country}
+  \item \textbf{Function:} \texttt{write\_update\_participant\_country(participant\_id, new\_code)} in \texttt{src/services.py}
+  \item \textbf{Description:} Updates participant nationality with immediate foreign key verification against the reference \texttt{country} table.
+\end{itemize}
+
+\begin{lstlisting}
+-- Step 1: Ensure destination country code exists in country table
+SELECT country_name FROM country WHERE country_code = %s;
+
+-- Step 2: Execute atomic parameterized update
+UPDATE participant 
+SET country_code = %s 
+WHERE participant_id = %s;
+\end{lstlisting}
+
+\newpage
+
+% =====================================================================
+% PAGE 5: WRITE W3, INTEGRITY & VERIFICATION
+% =====================================================================
+\subsection{Feature W3: Delete Pending Entry (Write Operation 3 --- Delete)}
+\begin{itemize}[leftmargin=1.5em, itemsep=0.5pt, topsep=0.5pt]
+  \item \textbf{Route:} \texttt{POST /entries/delete/<entry\_id>}
+  \item \textbf{Function:} \texttt{write\_delete\_pending\_entry(entry\_id)} in \texttt{src/services.py}
+  \item \textbf{Description:} Safely removes pending applications. Validates status is strictly \texttt{'Pending'} and has no race results, cascading cleanup across dependent records before removing the root entry.
+\end{itemize}
+
+\begin{lstlisting}
+-- Step 1: Verify entry exists and status is strictly 'Pending'
+SELECT entry_id, registration_status FROM competition_entry WHERE entry_id = %s;
+
+-- Step 2: Reject deletion if heat results already exist in records_result
+SELECT 1 FROM records_result WHERE entry_id = %s;
+
+-- Step 3: Cascade clean-up of dependent participation and subtype records
+DELETE FROM participates_in WHERE entry_id = %s;
+DELETE FROM pair_entry WHERE entry_id = %s;
+DELETE FROM team_entry WHERE entry_id = %s;
+DELETE FROM assigned_to WHERE entry_id = %s;
+
+-- Step 4: Remove root competition entry
+DELETE FROM competition_entry WHERE entry_id = %s;
+\end{lstlisting}
+
+\vspace{0.4em}
+
+\section{Database Integrity \& Security Architecture}
+
+\begin{enumerate}[leftmargin=1.5em, itemsep=2.5pt]
+  \item \textbf{ACID Transaction Management:} Multi-table write workflows (W1 and W3) utilize the Python context manager \texttt{db.transaction()} with \texttt{autocommit=False}. If any constraint, foreign key, or business check fails, an automatic rollback is immediately triggered.
+  \item \textbf{Protection Against SQL Injection:} Every SQL statement executed across the Flask backend strictly uses parameter substitution with \texttt{\%s} placeholders. No manual string concatenation is used for user inputs.
+  \item \textbf{Database-Level Disjoint Triggers:} The database schema enforces disjoint specialization natively via triggers (\texttt{trg\_pair\_not\_team} and \texttt{trg\_team\_not\_pair}), ensuring no entry can simultaneously exist in \texttt{pair\_entry} and \texttt{team\_entry}.
+  \item \textbf{Safe Handling of Nullable Columns:} Left outer joins (\texttt{LEFT JOIN}) and \texttt{CONCAT\_WS} ensure that unrecorded attributes (e.g., unpublished officials or participants with single-word names) are handled gracefully without omitting rows or breaking page rendering.
+\end{enumerate}
+
+\vspace{0.3em}
+
+\section{Verification \& Test Execution}
+All 8 features and underlying queries have been verified against the live MariaDB 11.8 database populated with the official Eukonkanto championship dataset:
+\begin{itemize}[leftmargin=1.5em, itemsep=1.5pt]
+  \item \textbf{Read Queries:} R1 returns 82 approved entries for 2026; R2 retrieves complete participation history; R3 aggregates counts across 5 categories; R4 computes heat results and time deltas across 8 heats; R5 computes statistical averages per category.
+  \item \textbf{Write Queries:} W1 creates a valid pair entry in 2027 with subtype and participation links; W2 successfully updates participant nationality; W3 cleanly cascades deletion of pending entries while rejecting deletion of confirmed or raced entries.
+\end{itemize}
+
+\end{document}
