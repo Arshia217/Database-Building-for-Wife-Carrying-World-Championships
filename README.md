@@ -35,6 +35,7 @@ Baseline is the Team 7 Phase 3 schema (3NF). Significant changes:
 | R7 | `records_result.recording_timestamp` may be NULL. | Not published for imported results. |
 | R8 | `pair_entry` carrier/carried foreign keys use `ON UPDATE RESTRICT`. | MySQL does not allow a CHECK on a column with a CASCADE rule (error 3823); participant ids never change. |
 | R9 | Added triggers: race date must lie inside the edition's dates (rule 7); an entry cannot be both a pair and a team (disjoint specialization). | Cannot be declared as plain constraints. |
+| R10 | `participant.approval_status` column added (`ENUM('Pending', 'Approved', 'None') NOT NULL DEFAULT 'Approved'`). | Tracks whether each participant's entry is currently pending review, approved, or unassigned. Historical racers default to `'Approved'`. |
 
 Unchanged from Phase 3: all relations, primary keys, `PAIR_ENTRY.carrier_id/carried_id`, and the weak entities `RACE` and `HEAT`. Column types, sizes and enum values follow the Phase 1 document. The reserved word `rank` is written with backticks. R3 to R7 follow the Phase 1 assumption that attributes the data cannot provide may be NULL.
 
@@ -109,9 +110,9 @@ Below is the mapping for our relational implementation (**MySQL 8.0 / MariaDB 11
 | **Query (Read 3)** | `SELECT` | Read Operation 3 | **Entries per Category Breakdown** | `/categories` | Aggregation query with `COUNT(entry_id)` and conditional sums (`SUM(CASE WHEN ...) GROUP BY`) |
 | **Query (Read 4)** | `SELECT` | Read Operation 4 | **Heat Result Sheet & Delta** | `/results` | Window function `MIN(...) OVER ()` to compute time difference from heat winner (`time_diff`) |
 | **Query (Read 5)** | `SELECT` | Read Operation 5 | **Average Final Time Analysis** | `/categories#averages` | Statistical aggregation (`AVG`, `MIN`, `MAX`, `COUNT`) grouped by category |
-| **Write (Create)** | `INSERT` | Write Operation 1 | **Register a Pair Entry** | `/register` | Multi-table atomic `INSERT` into `competition_entry`, `pair_entry`, and `participates_in` |
+| **Write (Create)** | `INSERT` | Write Operation 1 | **Register a Pair Entry** | `/register` | Text input competitor insertion into `participant` (with `approval_status`), master entry, subtype, and edition linking |
 | **Write (Update)** | `UPDATE` | Write Operation 2 | **Change Participant Country** | `/participants/update-country` | Parameterized `UPDATE participant SET country_code = %s` with foreign key verification |
-| **Write (Delete)** | `DELETE` | Write Operation 3 | **Delete Pending Entry** | `/entries/manage` | Multi-table cascade `DELETE` on pending entries with status and result protection |
+| **Write (Delete)** | `DELETE` | Write Operation 3 | **Delete Pending Entry & Approval** | `/entries/manage` | Multi-table cascade `DELETE`, edition participation cleanup, orphaned competitor removal, and atomic approval |
 
 ---
 
@@ -150,7 +151,7 @@ Below is the mapping for our relational implementation (**MySQL 8.0 / MariaDB 11
   ```sql
   SELECT 
       p.participant_id, CONCAT_WS(' ', p.first_name, p.last_name) AS full_name,
-      p.first_name, p.last_name, co.country_name,
+      p.first_name, p.last_name, p.approval_status, co.country_name,
       ce.entry_id, ce.edition_year, ce.bib_number, c.category_name,
       pi.participant_role, ce.registration_status
   FROM participant p
@@ -240,28 +241,33 @@ Below is the mapping for our relational implementation (**MySQL 8.0 / MariaDB 11
 
 #### **W1. Register a Pair (Create Operation — `INSERT`)**
 - **URL / Route:** `/register` (`GET` form, `POST` submission)
-- **Backend Function:** `write_register_pair(edition_year, category_id, carrier_id, carried_id, bib_number, registration_status)` in `src/services.py`
-- **Description:** Enrolls a new pair into a championship edition (e.g. 2027) within an atomic transaction.
+- **Backend Function:** `write_register_pair(edition_year, category_id, ...)` in `src/services.py`
+- **Description:** Enrolls a new pair into a championship edition (e.g. 2027) within an atomic transaction. Takes text input for carrier and carried competitors, automatically adds them into the `participant` table with their `approval_status`, and creates the competition entry.
 - **Validations & Business Rules Enforced:**
   1. Validates that the selected edition offers the category (`has_category`).
-  2. Carrier and carried must be distinct participants (`carrier_id != carried_id`).
-  3. Age verification: enforces that carrier is $\ge 40$ years old if registering for the "40+" category.
-  4. Database triggers verify disjoint specialization (an entry cannot be both a pair and a team).
+  2. Inserts new competitor profiles into `participant` (or links existing records) within the atomic transaction, setting `approval_status` (`'Pending'` or `'Approved'`).
+  3. Carrier and carried must be distinct participants (`carrier_id != carried_id`).
+  4. Age verification: enforces that carrier is $\ge 40$ years old if registering for the "40+" category.
+  5. Database triggers verify disjoint specialization (an entry cannot be both a pair and a team).
 - **SQL Operations Executed Atomically:**
   ```sql
-  -- Step 1: Insert core competition entry
+  -- Step 1: Add or resolve Carrier & Carried in participant table with approval status
+  INSERT INTO participant (first_name, last_name, date_of_birth, weight_kg, country_code, approval_status)
+  VALUES (%s, %s, %s, %s, %s, %s);
+  
+  -- Step 2: Insert core competition entry
   INSERT INTO competition_entry (edition_year, category_id, bib_number, registration_status)
   VALUES (%s, %s, %s, %s);
   
-  -- Step 2: Insert subtype specialization
+  -- Step 3: Insert subtype specialization
   INSERT INTO pair_entry (entry_id, carrier_id, carried_id)
   VALUES (%s, %s, %s);
   
-  -- Step 3: Insert participation role records
+  -- Step 4: Insert participation role records
   INSERT INTO participates_in (entry_id, participant_id, participant_role)
   VALUES (%s, %s, 'Carrier'), (%s, %s, 'Carried');
   
-  -- Step 4: Record participant-edition history
+  -- Step 5: Record participant-edition history
   INSERT IGNORE INTO participates_in_edition (participant_id, edition_year)
   VALUES (%s, %s), (%s, %s);
   ```
@@ -281,21 +287,46 @@ Below is the mapping for our relational implementation (**MySQL 8.0 / MariaDB 11
   WHERE participant_id = %s;
   ```
 
-#### **W3. Delete Pending Entry (Delete Operation — `DELETE`)**
-- **URL / Route:** `/entries/manage` (management table) and `/entries/delete/<entry_id>` (`POST` action)
-- **Backend Function:** `write_delete_pending_entry(entry_id)` in `src/services.py`
-- **Description:** Allows administrators to cancel and remove pending applications while strictly guarding competition data integrity.
+#### **W3. Delete Pending Entry (Delete Operation — `DELETE`) & Approval**
+- **URL / Route:** 
+  - Manage entries view: `/entries/manage`
+  - Delete entry action: `/entries/delete/<entry_id>` (`POST` action)
+  - Approve entry action: `/entries/approve/<entry_id>` (`POST` action)
+- **Backend Functions:** 
+  - `write_delete_pending_entry(entry_id)` in `src/services.py`
+  - `write_approve_pending_entry(entry_id)` in `src/services.py`
+- **Description:** Allows administrators to approve or cancel pending applications while strictly guarding competition data integrity. When deleting a pending entry, the database cleans up related entries, removes edition participation, and automatically deletes orphaned participant records if they were created for that pending entry and have no other entries.
 - **Safety Checks & Guardrails:**
   1. Status must be strictly `'Pending'`. Attempts to delete an `'Approved'` or `'Withdrawn'` entry are rejected with an error.
   2. Safety check: rejects deletion if race results already exist in `records_result`.
-- **SQL Operations Executed Atomically:**
+  3. Automatic cleanup: deletes orphaned competitors from `participant` and `participates_in_edition` when their sole pending entry is deleted, keeping the database consistent.
+- **SQL Operations Executed Atomically for Deletion:**
   ```sql
-  -- Clean up dependent relationship and subtype rows before removing parent entry:
+  -- Step 1: Clean up dependent relationship and subtype rows
   DELETE FROM participates_in WHERE entry_id = %s;
   DELETE FROM pair_entry WHERE entry_id = %s;
   DELETE FROM team_entry WHERE entry_id = %s;
   DELETE FROM assigned_to WHERE entry_id = %s;
   DELETE FROM competition_entry WHERE entry_id = %s;
+
+  -- Step 2: Remove edition participation if participant has no other entries in edition
+  DELETE FROM participates_in_edition WHERE participant_id = %s AND edition_year = %s;
+
+  -- Step 3: Remove orphaned participant if they have no other competition entries
+  DELETE FROM participant_contact WHERE participant_id = %s;
+  DELETE FROM participant WHERE participant_id = %s;
+  ```
+- **SQL Operations Executed Atomically for Approval:**
+  ```sql
+  -- Step 1: Confirm entry registration
+  UPDATE competition_entry SET registration_status = 'Approved' WHERE entry_id = %s;
+
+  -- Step 2: Update participant approval status
+  UPDATE participant 
+  SET approval_status = 'Approved'
+  WHERE participant_id IN (
+      SELECT participant_id FROM participates_in WHERE entry_id = %s
+  );
   ```
 
 ## 6. Notes on queries
@@ -307,3 +338,7 @@ Below is the mapping for our relational implementation (**MySQL 8.0 / MariaDB 11
   - Constraints that MySQL cannot natively enforce via declarative table constraints (such as verifying carried person age/weight, preventing self-pairing `carrier_id != carried_id`, and enforcing carrier age $\ge 40$ in the 40+ category) are enforced programmatically inside atomic transactions in `src/services.py`.
 - **Transaction Safety:**
   - Multi-table writes (such as pair registration and cascade-clean deletion of pending entries) use `src/db.py`'s `transaction()` context manager with `autocommit=False`. If any constraint or foreign key fails, the entire transaction is rolled back.
+- **Participant Approval Lifecycle & Orphan Cleanup:**
+  - When competitors register via `/register`, text inputs dynamically create new rows in the `participant` table with `approval_status` (`'Pending'` or `'Approved'`).
+  - Administrators can approve pending entries via `/entries/approve/<id>`, atomically promoting both `competition_entry.registration_status` and `participant.approval_status` to `'Approved'`.
+  - When an administrator deletes an approval-pending entry via `/entries/delete/<id>`, the database cleans up child records (`participates_in`, `pair_entry`), removes `participates_in_edition` associations for that year, and automatically deletes orphaned competitors from `participant` (and `participant_contact`) if they have no other competition entries. If a competitor has other entries, their `approval_status` is safely recalculated. This ensures zero orphaned records in the database.

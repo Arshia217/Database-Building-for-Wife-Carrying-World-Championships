@@ -25,7 +25,7 @@
 
 % Listings setup for MySQL
 \lstdefinelanguage{MySQL}{
-  keywords={SELECT, FROM, WHERE, AND, OR, JOIN, LEFT, RIGHT, INNER, ON, GROUP, BY, ORDER, ASC, DESC, INSERT, INTO, VALUES, UPDATE, SET, DELETE, CASE, WHEN, THEN, ELSE, END, AS, OVER, MIN, MAX, AVG, COUNT, ROUND, COALESCE, CONCAT_WS, LIKE, IN, IS, NULL, NOT, IGNORE},
+  keywords={SELECT, FROM, WHERE, AND, OR, JOIN, LEFT, RIGHT, INNER, ON, GROUP, BY, ORDER, ASC, DESC, INSERT, INTO, VALUES, UPDATE, SET, DELETE, CASE, WHEN, THEN, ELSE, END, AS, OVER, MIN, MAX, AVG, COUNT, ROUND, COALESCE, CONCAT_WS, LIKE, IN, IS, NULL, NOT, IGNORE, LIMIT},
   sensitive=false,
   comment=[l]{--},
   morecomment=[s]{/*}{*/},
@@ -116,9 +116,9 @@ All operations are implemented in the Python/Flask web portal using raw, paramet
 \textbf{R4} & Read 4 & \texttt{SELECT} & Heat Result Sheet & \texttt{/results} & Window function \texttt{MIN(...) OVER ()}, delta calc \\
 \textbf{R5} & Read 5 & \texttt{SELECT} & Category Avg Times & \texttt{/categories\#avg} & Statistical aggregation (\texttt{AVG}, \texttt{MIN}, \texttt{MAX}) \\
 \midrule
-\textbf{W1} & Write 1 (\textbf{Create}) & \texttt{INSERT} & Register a Pair & \texttt{/register} & Atomic multi-table \texttt{INSERT} across 4 tables \\
+\textbf{W1} & Write 1 (\textbf{Create}) & \texttt{INSERT} & Register a Pair & \texttt{/register} & Text input competitor creation, approval status, \& pair linking \\
 \textbf{W2} & Write 2 (\textbf{Update}) & \texttt{UPDATE} & Update Country & \texttt{/participants/..} & Parameterized \texttt{UPDATE} with FK validation \\
-\textbf{W3} & Write 3 (\textbf{Delete}) & \texttt{DELETE} & Delete Pending Entry & \texttt{/entries/manage} & Cascaded \texttt{DELETE} with state integrity guard \\ \bottomrule
+\textbf{W3} & Write 3 (\textbf{Delete}) & \texttt{DELETE} & Delete / Approve & \texttt{/entries/manage} & Cascade \texttt{DELETE}, edition \& orphan cleanup, approval \\ \bottomrule
 \end{tabularx}
 \end{table}
 
@@ -177,7 +177,7 @@ ORDER BY ce.bib_number IS NULL, ce.bib_number, ce.entry_id;
 \begin{lstlisting}
 SELECT 
     p.participant_id, CONCAT_WS(' ', p.first_name, p.last_name) AS full_name,
-    p.first_name, p.last_name, co.country_name,
+    p.first_name, p.last_name, p.approval_status, co.country_name,
     ce.entry_id, ce.edition_year, ce.bib_number, c.category_name,
     pi.participant_role, ce.registration_status
 FROM participant p
@@ -281,35 +281,39 @@ ORDER BY avg_final_time ASC;
 
 \subsection{Feature W1: Register a Pair (Write Operation 1 --- Create)}
 \begin{itemize}[leftmargin=1.5em, itemsep=0.5pt, topsep=0.5pt]
-  \item \textbf{Route:} \texttt{POST /register} \quad$\vert$\quad \textbf{Function:} \texttt{write\_register\_pair(...)}
-  \item \textbf{Description:} Atomic multi-table insertion enrolling a pair for an edition. Enforces business rules: verifies category offering in \texttt{has\_category}, carrier $\neq$ carried, carrier age $\ge 40$ in the 40+ category, and inserts across subtype and relationship tables.
+  \item \textbf{Route:} \texttt{POST /register} \quad$\vert$\quad \textbf{Function:} \texttt{write\_register\_pair(...)} in \texttt{src/services.py}
+  \item \textbf{Description:} Multi-table atomic transaction taking text inputs for carrier and carried competitors. Automatically inserts new competitor records into the \texttt{participant} table with \texttt{approval\_status} (\texttt{'Pending'} or \texttt{'Approved'}), checks business rules (category offering, carrier $\neq$ carried, age $\ge 40$ in 40+ category), and inserts across subtype and participation tables.
 \end{itemize}
 
 \begin{lstlisting}
 -- Step 1: Validate edition offers chosen category
 SELECT 1 FROM has_category WHERE edition_year = %s AND category_id = %s;
 
--- Step 2: Validate participant eligibility and 40+ category carrier age
-SELECT category_name, minimum_age, min_carried_weight_kg FROM category WHERE category_id = %s;
-SELECT participant_id, first_name, last_name, date_of_birth, weight_kg 
-FROM participant WHERE participant_id IN (%s, %s);
+-- Step 2: Validate country existence & check if competitor already exists in DB
+SELECT country_code FROM country WHERE country_code = %s;
+SELECT participant_id, first_name, last_name, date_of_birth, weight_kg, country_code, approval_status 
+FROM participant 
+WHERE LOWER(first_name) = LOWER(%s) 
+  AND ((last_name IS NULL AND %s IS NULL) OR LOWER(last_name) = LOWER(%s))
+  AND country_code = %s LIMIT 1;
 
--- Step 3: Insert master competition entry record
+-- Step 3: Insert new competitor into participant table with approval_status
+INSERT INTO participant (first_name, last_name, date_of_birth, weight_kg, country_code, approval_status)
+VALUES (%s, %s, %s, %s, %s, %s);
+
+-- Step 4: Insert master competition entry record
 INSERT INTO competition_entry (edition_year, category_id, bib_number, registration_status)
 VALUES (%s, %s, %s, %s);
 
--- Step 4: Insert pair_entry subtype using generated entry_id (cursor.lastrowid)
+-- Step 5: Insert pair_entry subtype specialization using generated entry_id
 INSERT INTO pair_entry (entry_id, carrier_id, carried_id)
 VALUES (%s, %s, %s);
 
--- Step 5: Insert Carrier and Carried roles into participates_in
+-- Step 6: Insert Carrier and Carried roles into participates_in
 INSERT INTO participates_in (entry_id, participant_id, participant_role)
-VALUES (%s, %s, 'Carrier');
+VALUES (%s, %s, 'Carrier'), (%s, %s, 'Carried');
 
-INSERT INTO participates_in (entry_id, participant_id, participant_role)
-VALUES (%s, %s, 'Carried');
-
--- Step 6: Record participant-edition history in participates_in_edition
+-- Step 7: Record participant-edition history in participates_in_edition
 INSERT IGNORE INTO participates_in_edition (participant_id, edition_year)
 VALUES (%s, %s), (%s, %s);
 \end{lstlisting}
@@ -336,48 +340,57 @@ WHERE participant_id = %s;
 % =====================================================================
 % PAGE 5: WRITE W3, INTEGRITY & VERIFICATION
 % =====================================================================
-\subsection{Feature W3: Delete Pending Entry (Write Operation 3 --- Delete)}
+\subsection{Feature W3: Delete Pending Entry (Write Operation 3 --- Delete) \& Approval}
 \begin{itemize}[leftmargin=1.5em, itemsep=0.5pt, topsep=0.5pt]
-  \item \textbf{Route:} \texttt{POST /entries/delete/<entry\_id>}
-  \item \textbf{Function:} \texttt{write\_delete\_pending\_entry(entry\_id)} in \texttt{src/services.py}
-  \item \textbf{Description:} Safely removes pending applications. Validates status is strictly \texttt{'Pending'} and has no race results, cascading cleanup across dependent records before removing the root entry.
+  \item \textbf{Routes:} \texttt{POST /entries/delete/<entry\_id>} \quad$\vert$\quad \texttt{POST /entries/approve/<entry\_id>}
+  \item \textbf{Functions:} \texttt{write\_delete\_pending\_entry(entry\_id)} \\
+        \hphantom{\textbf{Functions: }}\texttt{write\_approve\_pending\_entry(entry\_id)}
+  \item \textbf{Description:} Allows administrators to approve or cancel pending entries. Deleting a pending entry cascades across dependent tables, cleans up \texttt{participates\_in\_edition}, and deletes orphaned competitor records from \texttt{participant} if they have no remaining competition entries.
 \end{itemize}
 
 \begin{lstlisting}
--- Step 1: Verify entry exists and status is strictly 'Pending'
-SELECT entry_id, registration_status FROM competition_entry WHERE entry_id = %s;
+-- Step 1: Verify entry exists & fetch edition_year / participants
+SELECT entry_id, edition_year, registration_status FROM competition_entry WHERE entry_id = %s;
+SELECT participant_id FROM participates_in WHERE entry_id = %s;
 
--- Step 2: Reject deletion if heat results already exist in records_result
+-- Step 2: Reject deletion if heat results already exist; otherwise cascade clean-up
 SELECT 1 FROM records_result WHERE entry_id = %s;
-
--- Step 3: Cascade clean-up of dependent participation and subtype records
 DELETE FROM participates_in WHERE entry_id = %s;
 DELETE FROM pair_entry WHERE entry_id = %s;
 DELETE FROM team_entry WHERE entry_id = %s;
 DELETE FROM assigned_to WHERE entry_id = %s;
-
--- Step 4: Remove root competition entry
 DELETE FROM competition_entry WHERE entry_id = %s;
+
+-- Step 3: Remove edition participation & orphaned competitors with no remaining entries
+DELETE FROM participates_in_edition WHERE participant_id = %s AND edition_year = %s;
+DELETE FROM participant_contact WHERE participant_id = %s;
+DELETE FROM participant WHERE participant_id = %s;
+
+-- [Approval Workflow]: Confirm entry & promote participant approval_status
+UPDATE competition_entry SET registration_status = 'Approved' WHERE entry_id = %s;
+UPDATE participant SET approval_status = 'Approved' 
+WHERE participant_id IN (SELECT participant_id FROM participates_in WHERE entry_id = %s);
 \end{lstlisting}
 
-\vspace{0.4em}
+\vspace{0.2em}
 
 \section{Database Integrity \& Security Architecture}
 
-\begin{enumerate}[leftmargin=1.5em, itemsep=2.5pt]
+\begin{enumerate}[leftmargin=1.5em, itemsep=1.5pt, topsep=1pt]
   \item \textbf{ACID Transaction Management:} Multi-table write workflows (W1 and W3) utilize the Python context manager \texttt{db.transaction()} with \texttt{autocommit=False}. If any constraint, foreign key, or business check fails, an automatic rollback is immediately triggered.
   \item \textbf{Protection Against SQL Injection:} Every SQL statement executed across the Flask backend strictly uses parameter substitution with \texttt{\%s} placeholders. No manual string concatenation is used for user inputs.
   \item \textbf{Database-Level Disjoint Triggers:} The database schema enforces disjoint specialization natively via triggers (\texttt{trg\_pair\_not\_team} and \texttt{trg\_team\_not\_pair}), ensuring no entry can simultaneously exist in \texttt{pair\_entry} and \texttt{team\_entry}.
   \item \textbf{Safe Handling of Nullable Columns:} Left outer joins (\texttt{LEFT JOIN}) and \texttt{CONCAT\_WS} ensure that unrecorded attributes (e.g., unpublished officials or participants with single-word names) are handled gracefully without omitting rows or breaking page rendering.
+  \item \textbf{Participant Lifecycle \& Orphan Prevention:} Text inputs dynamically register competitors into \texttt{participant} with \texttt{approval\_status} (\texttt{'Pending'} or \texttt{'Approved'}). Deleting a pending entry purges \texttt{participates\_in\_edition} and automatically deletes orphaned competitors with no remaining entries from \texttt{participant}, ensuring zero dangling records.
 \end{enumerate}
 
-\vspace{0.3em}
+\vspace{0.2em}
 
 \section{Verification \& Test Execution}
 All 8 features and underlying queries have been verified against the live MariaDB 11.8 database populated with the official Eukonkanto championship dataset:
-\begin{itemize}[leftmargin=1.5em, itemsep=1.5pt]
-  \item \textbf{Read Queries:} R1 returns 82 approved entries for 2026; R2 retrieves complete participation history; R3 aggregates counts across 5 categories; R4 computes heat results and time deltas across 8 heats; R5 computes statistical averages per category.
-  \item \textbf{Write Queries:} W1 creates a valid pair entry in 2027 with subtype and participation links; W2 successfully updates participant nationality; W3 cleanly cascades deletion of pending entries while rejecting deletion of confirmed or raced entries.
+\begin{itemize}[leftmargin=1.5em, itemsep=1pt, topsep=1pt]
+  \item \textbf{Read Queries:} R1 returns 82 approved entries for 2026; R2 retrieves complete participation history and approval status; R3 aggregates counts across 5 categories; R4 computes heat results and time deltas across 8 heats; R5 computes statistical averages per category.
+  \item \textbf{Write Queries:} W1 inserts new competitors via text input with initial \texttt{approval\_status}, creates \texttt{competition\_entry} and \texttt{pair\_entry}, and records 2027 participation; W2 updates participant nationality; W3 cascades deletion of pending entries, cleans up edition participation, deletes orphaned competitors from \texttt{participant}, and synchronizes approval status upon approval.
 \end{itemize}
 
 \end{document}

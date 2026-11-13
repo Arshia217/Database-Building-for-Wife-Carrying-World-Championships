@@ -33,6 +33,7 @@ CREATE TABLE participant (
     date_of_birth   DATE          NULL,        -- [REVISION R3] not published on the website
     weight_kg       DECIMAL(5,2)  NULL    ,
     country_code    CHAR(3)       NOT NULL,
+    approval_status ENUM('Pending', 'Approved', 'None') NOT NULL DEFAULT 'Approved',
     PRIMARY KEY (participant_id),
     KEY idx_participant_name (last_name, first_name),
     CONSTRAINT chk_participant_weight CHECK (weight_kg > 0),

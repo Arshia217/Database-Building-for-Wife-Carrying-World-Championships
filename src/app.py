@@ -115,26 +115,104 @@ def heat_results():
 def register_pair():
     """
     Feature 6 (Write 1 - Create): Register a pair entry.
+    Takes text input for carrier and carried names, adds them to the database,
+    and registers the competition entry.
     """
     if request.method == "POST":
         try:
             edition_year = int(request.form.get("edition_year"))
             category_id = int(request.form.get("category_id"))
-            carrier_id = int(request.form.get("carrier_id"))
-            carried_id = int(request.form.get("carried_id"))
             bib_number = request.form.get("bib_number")
             bib_number = int(bib_number) if bib_number and bib_number.strip() else None
             status = request.form.get("registration_status", "Pending")
+
+            # Extract carrier information from text inputs
+            carrier_first = request.form.get("carrier_first_name", "").strip()
+            carrier_last = request.form.get("carrier_last_name", "").strip() or None
+            if not carrier_first and request.form.get("carrier_name"):
+                parts = request.form.get("carrier_name").strip().split(maxsplit=1)
+                carrier_first = parts[0]
+                carrier_last = parts[1] if len(parts) > 1 else None
+
+            carrier_country = (
+                request.form.get("carrier_country_code", "").strip()
+                or request.form.get("carrier_country", "").strip()
+                or "FIN"
+            )
+            carrier_dob = request.form.get("carrier_dob", "").strip() or None
+            carrier_weight = (
+                request.form.get("carrier_weight_kg", "").strip()
+                or request.form.get("carrier_weight", "").strip()
+                or None
+            )
+
+            # Extract carried information from text inputs
+            carried_first = request.form.get("carried_first_name", "").strip()
+            carried_last = request.form.get("carried_last_name", "").strip() or None
+            if not carried_first and request.form.get("carried_name"):
+                parts = request.form.get("carried_name").strip().split(maxsplit=1)
+                carried_first = parts[0]
+                carried_last = parts[1] if len(parts) > 1 else None
+
+            carried_country = (
+                request.form.get("carried_country_code", "").strip()
+                or request.form.get("carried_country", "").strip()
+                or "FIN"
+            )
+            carried_dob = request.form.get("carried_dob", "").strip() or None
+            carried_weight = (
+                request.form.get("carried_weight_kg", "").strip()
+                or request.form.get("carried_weight", "").strip()
+                or None
+            )
+
+            # Legacy support if carrier_id / carried_id are submitted directly
+            carrier_id = request.form.get("carrier_id")
+            carrier_id = int(carrier_id) if carrier_id and str(carrier_id).strip().isdigit() else None
+            carried_id = request.form.get("carried_id")
+            carried_id = int(carried_id) if carried_id and str(carried_id).strip().isdigit() else None
+
+            carrier_data = None
+            if not carrier_id:
+                if not carrier_first:
+                    raise ValueError("Carrier first name is required.")
+                carrier_data = {
+                    "first_name": carrier_first,
+                    "last_name": carrier_last,
+                    "country_code": carrier_country,
+                    "date_of_birth": carrier_dob,
+                    "weight_kg": float(carrier_weight) if carrier_weight else None,
+                }
+
+            carried_data = None
+            if not carried_id:
+                if not carried_first:
+                    raise ValueError("Carried competitor first name is required.")
+                carried_data = {
+                    "first_name": carried_first,
+                    "last_name": carried_last,
+                    "country_code": carried_country,
+                    "date_of_birth": carried_dob,
+                    "weight_kg": float(carried_weight) if carried_weight else None,
+                }
 
             entry_id = services.write_register_pair(
                 edition_year=edition_year,
                 category_id=category_id,
                 carrier_id=carrier_id,
                 carried_id=carried_id,
+                carrier_data=carrier_data,
+                carried_data=carried_data,
                 bib_number=bib_number,
                 registration_status=status,
             )
-            flash(f"Successfully registered pair! New Entry ID: #{entry_id} (Status: {status}).", "success")
+
+            carrier_name_str = f"{carrier_first} {carrier_last or ''}".strip() if carrier_data else f"ID #{carrier_id}"
+            carried_name_str = f"{carried_first} {carried_last or ''}".strip() if carried_data else f"ID #{carried_id}"
+            flash(
+                f"Successfully registered pair ({carrier_name_str} & {carried_name_str})! New Entry ID: #{entry_id} (Status: {status}).",
+                "success",
+            )
             if status == "Pending":
                 return redirect(url_for("manage_entries"))
             return redirect(url_for("approved_entries", edition_year=edition_year))
@@ -143,11 +221,13 @@ def register_pair():
 
     editions = services.get_all_editions()
     categories = services.get_categories_for_edition()
+    countries = services.get_all_countries()
     participants = services.get_all_participants()
     return render_template(
         "register_pair.html",
         editions=editions,
         categories=categories,
+        countries=countries,
         participants=participants,
     )
 
@@ -184,6 +264,19 @@ def manage_entries():
     """
     pending_entries = services.get_all_entries(status_filter="Pending")
     return render_template("manage_entries.html", pending_entries=pending_entries)
+
+
+@app.route("/entries/approve/<int:entry_id>", methods=["POST"])
+def approve_entry(entry_id):
+    """
+    Approve Action: Approve a pending entry and update participant approval_status.
+    """
+    try:
+        services.write_approve_pending_entry(entry_id)
+        flash(f"Entry #{entry_id} was successfully approved!", "success")
+    except Exception as e:
+        flash(f"Approval Error: {str(e)}", "danger")
+    return redirect(url_for("manage_entries"))
 
 
 @app.route("/entries/delete/<int:entry_id>", methods=["POST"])

@@ -6,65 +6,129 @@
 <div class="page-header">
     <div>
         <h1 class="page-title">Register a Competition Pair</h1>
-        <p class="page-subtitle">Feature 6 (Write 1 - Create): Atomically register a pair entry enforcing edition and category constraints.</p>
+        <p class="page-subtitle">Feature 6 (Write 1 - Create): Enter competitor names and details to add them to the database and register for the championship.</p>
     </div>
 </div>
 
-<div class="form-card" style="max-width: 720px; margin: 0 auto;">
+<div class="form-card" style="max-width: 760px; margin: 0 auto;">
     <form method="POST" action="{{ url_for('register_pair') }}">
-        <div class="form-group">
-            <label class="form-label" for="edition_year">Competition Edition:</label>
-            <select name="edition_year" id="edition_year" class="form-control" required>
-                {% for ed in editions %}
-                    <option value="{{ ed.edition_year }}" {% if ed.edition_year == 2027 %}selected{% endif %}>
-                        Edition {{ ed.edition_year }} ({{ ed.edition_status }} &bull; {{ ed.venue }})
-                    </option>
-                {% endfor %}
-            </select>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.25rem;">
+            <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label" for="edition_year">Competition Edition:</label>
+                <select name="edition_year" id="edition_year" class="form-control" required>
+                    {% for ed in editions %}
+                        <option value="{{ ed.edition_year }}" {% if ed.edition_year == 2027 %}selected{% endif %}>
+                            Edition {{ ed.edition_year }} ({{ ed.edition_status }})
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label" for="category_id">Championship Category:</label>
+                <select name="category_id" id="category_id" class="form-control" required>
+                    {% for cat in categories %}
+                        <option value="{{ cat.category_id }}">
+                            {{ cat.category_name }} (Min Wt: {{ cat.min_carried_weight_kg or 49 }}kg, Min Age: {{ cat.minimum_age or 17 }})
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
         </div>
 
-        <div class="form-group">
-            <label class="form-label" for="category_id">Championship Category:</label>
-            <select name="category_id" id="category_id" class="form-control" required>
-                {% for cat in categories %}
-                    <option value="{{ cat.category_id }}">
-                        {{ cat.category_name }} (Min Carried Weight: {{ cat.min_carried_weight_kg or 49 }}kg, Min Age: {{ cat.minimum_age or 17 }})
-                    </option>
-                {% endfor %}
-            </select>
+        <!-- Carrier Competitor Section -->
+        <div style="background: var(--bg-subtle); padding: 1.25rem; border-radius: var(--radius-input); margin-bottom: 1.25rem; border: 1px solid var(--border-subtle);">
+            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.85rem;">
+                <span style="background: var(--brand-navy); color: #fff; width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: 700;">1</span>
+                <h3 style="font-size: 1.05rem; color: var(--brand-navy); font-weight: 700; margin: 0;">Carrier (Competitor 1)</h3>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.75rem;">
+                <div>
+                    <label class="form-label" for="carrier_first_name">First Name: <span style="color: var(--brand-red);">*</span></label>
+                    <input type="text" name="carrier_first_name" id="carrier_first_name" class="form-control" placeholder="e.g. Matti" required>
+                </div>
+                <div>
+                    <label class="form-label" for="carrier_last_name">Last Name:</label>
+                    <input type="text" name="carrier_last_name" id="carrier_last_name" class="form-control" placeholder="e.g. Virtanen">
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1.5fr 1fr 1fr; gap: 0.75rem;">
+                <div>
+                    <label class="form-label" for="carrier_country_code">Nationality / Country:</label>
+                    <select name="carrier_country_code" id="carrier_country_code" class="form-control">
+                        {% for c in countries %}
+                            <option value="{{ c.country_code }}" {% if c.country_code == 'FIN' %}selected{% endif %}>
+                                {{ c.country_name }} ({{ c.country_code }})
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label" for="carrier_dob">Birth Date (Optional):</label>
+                    <input type="date" name="carrier_dob" id="carrier_dob" class="form-control">
+                </div>
+                <div>
+                    <label class="form-label" for="carrier_weight_kg">Weight kg (Opt):</label>
+                    <input type="number" step="0.1" min="1" name="carrier_weight_kg" id="carrier_weight_kg" class="form-control" placeholder="e.g. 82.5">
+                </div>
+            </div>
         </div>
 
-        <div class="form-group">
-            <label class="form-label" for="carrier_id">Carrier (Competitor 1):</label>
-            <select name="carrier_id" id="carrier_id" class="form-control" required>
-                <option value="">-- Choose Carrier --</option>
-                {% for p in participants %}
-                    <option value="{{ p.participant_id }}">{{ p.full_name }} ({{ p.country_name }})</option>
-                {% endfor %}
-            </select>
+        <!-- Carried Competitor Section -->
+        <div style="background: var(--bg-subtle); padding: 1.25rem; border-radius: var(--radius-input); margin-bottom: 1.25rem; border: 1px solid var(--border-subtle);">
+            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.85rem;">
+                <span style="background: var(--brand-red); color: #fff; width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: 700;">2</span>
+                <h3 style="font-size: 1.05rem; color: var(--brand-navy); font-weight: 700; margin: 0;">Carried (Competitor 2)</h3>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.75rem;">
+                <div>
+                    <label class="form-label" for="carried_first_name">First Name: <span style="color: var(--brand-red);">*</span></label>
+                    <input type="text" name="carried_first_name" id="carried_first_name" class="form-control" placeholder="e.g. Laura" required>
+                </div>
+                <div>
+                    <label class="form-label" for="carried_last_name">Last Name:</label>
+                    <input type="text" name="carried_last_name" id="carried_last_name" class="form-control" placeholder="e.g. Korhonen">
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1.5fr 1fr 1fr; gap: 0.75rem;">
+                <div>
+                    <label class="form-label" for="carried_country_code">Nationality / Country:</label>
+                    <select name="carried_country_code" id="carried_country_code" class="form-control">
+                        {% for c in countries %}
+                            <option value="{{ c.country_code }}" {% if c.country_code == 'FIN' %}selected{% endif %}>
+                                {{ c.country_name }} ({{ c.country_code }})
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label" for="carried_dob">Birth Date (Optional):</label>
+                    <input type="date" name="carried_dob" id="carried_dob" class="form-control">
+                </div>
+                <div>
+                    <label class="form-label" for="carried_weight_kg">Weight kg (Opt):</label>
+                    <input type="number" step="0.1" min="1" name="carried_weight_kg" id="carried_weight_kg" class="form-control" placeholder="e.g. 52.0">
+                </div>
+            </div>
         </div>
 
-        <div class="form-group">
-            <label class="form-label" for="carried_id">Carried (Competitor 2):</label>
-            <select name="carried_id" id="carried_id" class="form-control" required>
-                <option value="">-- Choose Carried Competitor --</option>
-                {% for p in participants %}
-                    <option value="{{ p.participant_id }}">{{ p.full_name }} ({{ p.country_name }})</option>
-                {% endfor %}
-            </select>
-        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.25rem;">
+            <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label" for="bib_number">Bib Number (Optional):</label>
+                <input type="number" name="bib_number" id="bib_number" class="form-control" placeholder="e.g. 101" min="1">
+            </div>
 
-        <div class="form-group">
-            <label class="form-label" for="bib_number">Bib Number (Optional):</label>
-            <input type="number" name="bib_number" id="bib_number" class="form-control" placeholder="e.g. 101" min="1">
-        </div>
-
-        <div class="form-group">
-            <label class="form-label" for="registration_status">Initial Registration Status:</label>
-            <select name="registration_status" id="registration_status" class="form-control">
-                <option value="Pending" selected>Pending (Requires Approval)</option>
-                <option value="Approved">Approved</option>
-            </select>
+            <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label" for="registration_status">Initial Registration Status:</label>
+                <select name="registration_status" id="registration_status" class="form-control">
+                    <option value="Pending" selected>Pending (Requires Approval)</option>
+                    <option value="Approved">Approved</option>
+                </select>
+            </div>
         </div>
 
         <div style="display: flex; gap: 1rem; margin-top: 1.75rem;">

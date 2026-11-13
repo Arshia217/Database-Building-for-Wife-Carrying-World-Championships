@@ -50,7 +50,7 @@ def get_all_participants():
     sql = """
         SELECT p.participant_id, p.first_name, p.last_name, 
                CONCAT_WS(' ', p.first_name, p.last_name) AS full_name,
-               p.date_of_birth, p.weight_kg, p.country_code, c.country_name
+               p.date_of_birth, p.weight_kg, p.country_code, p.approval_status, c.country_name
         FROM participant p
         JOIN country c ON p.country_code = c.country_code
         ORDER BY p.last_name IS NULL, p.last_name, p.first_name;
@@ -131,6 +131,7 @@ def query_name_search(name_fragment):
             CONCAT_WS(' ', p.first_name, p.last_name) AS full_name,
             p.first_name,
             p.last_name,
+            p.approval_status,
             co.country_name,
             ce.entry_id,
             ce.edition_year,
@@ -258,17 +259,142 @@ def query_average_final_times(edition_year=None):
 # 3 PLANNED WRITE OPERATIONS (README SECTION 5)
 # =====================================================================
 
-def write_register_pair(edition_year, category_id, carrier_id, carried_id, bib_number=None, registration_status='Pending'):
+def _resolve_or_create_participant(cursor, participant_id=None, participant_data=None, registration_status='Pending'):
+    """
+    Helper to resolve an existing participant by ID or create/find by data dictionary.
+    participant_data can contain:
+      - first_name (required)
+      - last_name (optional)
+      - country_code (required/optional, defaults to 'FIN')
+      - date_of_birth (optional, date or YYYY-MM-DD str)
+      - weight_kg (optional, decimal or float)
+    Sets approval_status in participant based on registration_status ('Pending' or 'Approved').
+    """
+    if participant_id:
+        cursor.execute(
+            "SELECT participant_id, first_name, last_name, date_of_birth, weight_kg, country_code, approval_status FROM participant WHERE participant_id = %s;",
+            (participant_id,)
+        )
+        p = cursor.fetchone()
+        if not p:
+            raise ValueError(f"Participant ID {participant_id} not found.")
+        if registration_status == 'Approved' and p.get('approval_status') != 'Approved':
+            cursor.execute("UPDATE participant SET approval_status = 'Approved' WHERE participant_id = %s;", (participant_id,))
+            p['approval_status'] = 'Approved'
+        return p['participant_id'], p
+
+    if not participant_data or not participant_data.get('first_name'):
+        raise ValueError("Participant first name is required.")
+
+    first_name = participant_data['first_name'].strip()
+    last_name = participant_data.get('last_name')
+    if last_name:
+        last_name = last_name.strip() or None
+    country_code = (participant_data.get('country_code') or 'FIN').strip().upper()
+    
+    dob = participant_data.get('date_of_birth')
+    if isinstance(dob, str) and not dob.strip():
+        dob = None
+    elif isinstance(dob, str):
+        dob = date.fromisoformat(dob.strip())
+
+    weight = participant_data.get('weight_kg')
+    if isinstance(weight, str) and not weight.strip():
+        weight = None
+    if weight is not None:
+        weight = Decimal(str(weight))
+
+    # Verify country exists
+    cursor.execute("SELECT country_code FROM country WHERE country_code = %s;", (country_code,))
+    if not cursor.fetchone():
+        raise ValueError(f"Country code '{country_code}' does not exist.")
+
+    # Check if participant already exists with exact name and country
+    sql_find = """
+        SELECT participant_id, first_name, last_name, date_of_birth, weight_kg, country_code, approval_status 
+        FROM participant 
+        WHERE LOWER(first_name) = LOWER(%s) 
+          AND (
+            (last_name IS NULL AND %s IS NULL)
+            OR LOWER(last_name) = LOWER(%s)
+          )
+          AND country_code = %s
+        LIMIT 1;
+    """
+    cursor.execute(sql_find, (first_name, last_name, last_name, country_code))
+    existing = cursor.fetchone()
+    if existing:
+        p_id = existing['participant_id']
+        updates = []
+        params = []
+        if dob and not existing['date_of_birth']:
+            updates.append("date_of_birth = %s")
+            params.append(dob)
+            existing['date_of_birth'] = dob
+        if weight and not existing['weight_kg']:
+            updates.append("weight_kg = %s")
+            params.append(weight)
+            existing['weight_kg'] = weight
+        if registration_status == 'Approved' and existing.get('approval_status') != 'Approved':
+            updates.append("approval_status = 'Approved'")
+            existing['approval_status'] = 'Approved'
+        if updates:
+            params.append(p_id)
+            cursor.execute(f"UPDATE participant SET {', '.join(updates)} WHERE participant_id = %s;", tuple(params))
+        return p_id, existing
+
+    # Insert new participant into participant table with approval_status
+    initial_status = 'Approved' if registration_status == 'Approved' else 'Pending'
+    sql_ins = """
+        INSERT INTO participant (first_name, last_name, date_of_birth, weight_kg, country_code, approval_status)
+        VALUES (%s, %s, %s, %s, %s, %s);
+    """
+    cursor.execute(sql_ins, (first_name, last_name, dob, weight, country_code, initial_status))
+    p_id = cursor.lastrowid
+    new_p = {
+        'participant_id': p_id,
+        'first_name': first_name,
+        'last_name': last_name,
+        'date_of_birth': dob,
+        'weight_kg': weight,
+        'country_code': country_code,
+        'approval_status': initial_status
+    }
+    return p_id, new_p
+
+
+def write_register_pair(
+    edition_year,
+    category_id,
+    carrier_id=None,
+    carried_id=None,
+    bib_number=None,
+    registration_status='Pending',
+    carrier_data=None,
+    carried_data=None
+):
     """
     Write 1 (Create): Register a pair entry.
+    Supports either pre-existing participant IDs or text input details that
+    are inserted into the database.
     Enforces business rules and subtype insertion inside an atomic transaction:
       1. Edition offers category (has_category).
       2. Carrier and carried must not be the same participant.
       3. Age & weight validations (carried min weight & min age, 40+ carrier rule).
-      4. Inserts into competition_entry, pair_entry, participates_in.
+      4. Inserts into participant (if new), competition_entry, pair_entry, participates_in.
     """
-    if carrier_id == carried_id:
-        raise ValueError("Carrier and carried must be different participants.")
+    # Allow passing dicts positionally in carrier_id / carried_id slots
+    if isinstance(carrier_id, dict):
+        carrier_data = carrier_id
+        carrier_id = None
+    if isinstance(carried_id, dict):
+        carried_data = carried_id
+        carried_id = None
+
+    if not carrier_id and not carrier_data:
+        raise ValueError("Carrier information is required.")
+    if not carried_id and not carried_data:
+        raise ValueError("Carried competitor information is required.")
 
     with db.transaction() as cursor:
         # Rule Check 1: Edition offers category
@@ -285,28 +411,27 @@ def write_register_pair(edition_year, category_id, carrier_id, carried_id, bib_n
             (category_id,)
         )
         cat_info = cursor.fetchone()
+        if not cat_info:
+            raise ValueError(f"Category ID {category_id} not found.")
 
-        # Retrieve Carrier & Carried Details
-        cursor.execute(
-            "SELECT participant_id, first_name, last_name, date_of_birth, weight_kg FROM participant WHERE participant_id IN (%s, %s);",
-            (carrier_id, carried_id)
-        )
-        parts = {p['participant_id']: p for p in cursor.fetchall()}
-        carrier = parts.get(carrier_id)
-        carried = parts.get(carried_id)
+        # Resolve or insert carrier & carried participants
+        carrier_id, carrier = _resolve_or_create_participant(cursor, carrier_id, carrier_data, registration_status)
+        carried_id, carried = _resolve_or_create_participant(cursor, carried_id, carried_data, registration_status)
 
-        if not carrier or not carried:
-            raise ValueError("Invalid carrier or carried participant ID.")
+        if carrier_id == carried_id:
+            raise ValueError("Carrier and carried must be different participants.")
 
         # Business Validation: Carried weight
         if carried['weight_kg'] is not None and cat_info['min_carried_weight_kg'] is not None:
-            if Decimal(carried['weight_kg']) < Decimal(cat_info['min_carried_weight_kg']):
-                # Note: rules state weighted backpack is worn if below 49kg, but if under weight limit, notify/validate
+            if Decimal(str(carried['weight_kg'])) < Decimal(str(cat_info['min_carried_weight_kg'])):
                 pass
 
         # Business Validation: 40+ category carrier check
-        if cat_info['category_name'] == '40+' and carrier['date_of_birth']:
-            carrier_age = (date.today() - carrier['date_of_birth']).days // 365
+        if cat_info['category_name'] == '40+' and carrier.get('date_of_birth'):
+            carrier_dob = carrier['date_of_birth']
+            if isinstance(carrier_dob, str):
+                carrier_dob = date.fromisoformat(carrier_dob)
+            carrier_age = (date.today() - carrier_dob).days // 365
             if carrier_age < 40:
                 raise ValueError("Carrier must be 40 years or older for the 40+ category.")
 
@@ -369,16 +494,59 @@ def write_update_participant_country(participant_id, new_country_code):
         return country['country_name']
 
 
+def write_approve_pending_entry(entry_id):
+    """
+    Approve a pending entry.
+    Updates competition_entry.registration_status = 'Approved'.
+    Updates participant.approval_status = 'Approved' for all participants linked to this entry.
+    """
+    with db.transaction() as cursor:
+        cursor.execute(
+            "SELECT entry_id, registration_status FROM competition_entry WHERE entry_id = %s;",
+            (entry_id,)
+        )
+        entry = cursor.fetchone()
+        if not entry:
+            raise ValueError(f"Entry ID {entry_id} not found.")
+
+        if entry['registration_status'] != 'Pending':
+            raise ValueError(
+                f"Cannot approve entry #{entry_id}: Status is '{entry['registration_status']}', not 'Pending'."
+            )
+
+        # Update entry status
+        cursor.execute(
+            "UPDATE competition_entry SET registration_status = 'Approved' WHERE entry_id = %s;",
+            (entry_id,)
+        )
+
+        # Update participants linked to this entry to Approved
+        cursor.execute(
+            """
+            UPDATE participant 
+            SET approval_status = 'Approved'
+            WHERE participant_id IN (
+                SELECT participant_id FROM participates_in WHERE entry_id = %s
+            );
+            """,
+            (entry_id,)
+        )
+
+        return True
+
+
 def write_delete_pending_entry(entry_id):
     """
     Write 3 (Delete): Delete a pending entry.
     Only allows deleting entries with registration_status = 'Pending'.
     Safely cleans up subtype and participation records inside an atomic transaction.
+    Also cleans up participates_in_edition and deletes participants if they were
+    created for this pending entry and have no remaining competition entries.
     """
     with db.transaction() as cursor:
-        # Verify entry status
+        # Verify entry status and retrieve edition_year
         cursor.execute(
-            "SELECT entry_id, registration_status FROM competition_entry WHERE entry_id = %s;",
+            "SELECT entry_id, edition_year, registration_status FROM competition_entry WHERE entry_id = %s;",
             (entry_id,)
         )
         entry = cursor.fetchone()
@@ -395,12 +563,66 @@ def write_delete_pending_entry(entry_id):
         if cursor.fetchone():
             raise ValueError(f"Cannot delete entry {entry_id}: Race results are already recorded for this entry.")
 
+        edition_year = entry['edition_year']
+
+        # Fetch associated participant IDs prior to deleting participates_in
+        cursor.execute("SELECT participant_id FROM participates_in WHERE entry_id = %s;", (entry_id,))
+        linked_participants = [r['participant_id'] for r in cursor.fetchall()]
+
         # Clean up related records
         cursor.execute("DELETE FROM participates_in WHERE entry_id = %s;", (entry_id,))
         cursor.execute("DELETE FROM pair_entry WHERE entry_id = %s;", (entry_id,))
         cursor.execute("DELETE FROM team_entry WHERE entry_id = %s;", (entry_id,))
         cursor.execute("DELETE FROM assigned_to WHERE entry_id = %s;", (entry_id,))
         cursor.execute("DELETE FROM competition_entry WHERE entry_id = %s;", (entry_id,))
+
+        # Clean up participation and participant records
+        for p_id in linked_participants:
+            # Check if participant has remaining entries in this edition
+            cursor.execute(
+                """
+                SELECT 1 
+                FROM participates_in pi 
+                JOIN competition_entry ce ON pi.entry_id = ce.entry_id 
+                WHERE pi.participant_id = %s AND ce.edition_year = %s;
+                """,
+                (p_id, edition_year)
+            )
+            if not cursor.fetchone():
+                cursor.execute(
+                    "DELETE FROM participates_in_edition WHERE participant_id = %s AND edition_year = %s;",
+                    (p_id, edition_year)
+                )
+
+            # Check if participant has remaining entries across all editions
+            cursor.execute(
+                """
+                SELECT ce.registration_status 
+                FROM participates_in pi 
+                JOIN competition_entry ce ON pi.entry_id = ce.entry_id 
+                WHERE pi.participant_id = %s;
+                """,
+                (p_id,)
+            )
+            remaining_entries = cursor.fetchall()
+
+            if not remaining_entries:
+                # Participant has no other competition entries: remove from database
+                cursor.execute("DELETE FROM participant_contact WHERE participant_id = %s;", (p_id,))
+                cursor.execute("DELETE FROM participates_in_edition WHERE participant_id = %s;", (p_id,))
+                cursor.execute("DELETE FROM participant WHERE participant_id = %s;", (p_id,))
+            else:
+                # Update participant approval_status based on remaining entries
+                if any(r['registration_status'] == 'Approved' for r in remaining_entries):
+                    new_status = 'Approved'
+                elif any(r['registration_status'] == 'Pending' for r in remaining_entries):
+                    new_status = 'Pending'
+                else:
+                    new_status = 'None'
+                cursor.execute(
+                    "UPDATE participant SET approval_status = %s WHERE participant_id = %s;",
+                    (new_status, p_id)
+                )
 
         return True
 
