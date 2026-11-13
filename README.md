@@ -94,18 +94,209 @@ To grant database privileges, initialize the schema, populate the dataset, and t
      ```
    Open [http://localhost:5000](http://localhost:5000) in your web browser.
 
-## 5. Features (in the order of the demonstration video)
+## 5. Functional Requirements Implementation (Section 4.3)
 
-| # | Feature | Page / URL | How to Trigger | What it does |
-|---|---|---|---|---|
-| **R1** | **Approved Entries per Edition** | `/entries` | Select edition (e.g. 2026) and optionally a category from the dropdown filters. | Parameterized `SELECT` filtering by `edition_year` and `registration_status = 'Approved'`. Joins `competition_entry`, `category`, `pair_entry`, `team_entry`, and `participant` with `CONCAT_WS` and `LEFT JOIN`s. |
-| **R2** | **Participant Name Search** | `/search` | Enter a full or partial name (e.g. "Taisto", "Katja", "Joni") in the search input. | Performs case-insensitive wildcard matching using `CONCAT_WS(' ', first_name, last_name) LIKE %s`, displaying participant nationality, entered editions, categories, and roles. |
-| **R3** | **Entries per Category Breakdown** | `/categories` | Navigate to `/categories` or filter by edition year. | Aggregate query (`GROUP BY hc.edition_year, c.category_id`) returning total, approved, and pending entry counts across categories for the chosen edition. |
-| **R4** | **Heat Result Sheet with Time Differences** | `/results` | Select a race heat from the dropdown (e.g. 2026 Main Series: Race 6, Heat 1). | Displays heat rankings, bib numbers, raw times, penalties, final times (`raw_time + penalty_seconds`), and computes time differences (`time_diff`) relative to the heat winner using SQL window functions (`MIN(...) OVER ()`). Uses `LEFT JOIN` for nullable officials. |
-| **R5** | **Average Final Time Analysis** | `/categories#averages` | Scroll down on the `/categories` analytics page or filter by edition. | Analytical query calculating `COUNT`, `AVG(raw_time + penalty_seconds)`, `MIN`, and `MAX` finish times per category for finished entrants. |
-| **W1** | **Register a Pair (Create)** | `/register` | Choose edition (e.g. 2027), category, carrier, carried competitor, optional bib, and submit. | Multi-statement atomic transaction: verifies that the edition offers the category (`has_category`), verifies carried age/weight constraints, inserts `competition_entry`, `pair_entry`, `participates_in`, and updates `participates_in_edition`. |
-| **W2** | **Change Participant Country (Update)** | `/participants/update-country` | Select participant and choose new country from the dropdown. | Executes parameterized `UPDATE participant SET country_code = %s WHERE participant_id = %s` inside a transaction after verifying country existence in `country`. |
-| **W3** | **Delete Pending Entry (Delete)** | `/entries/manage` | Click "Delete Entry" on any entry with status 'Pending' (with confirmation prompt). | Atomic transaction: checks entry is strictly `Pending` (rejects deletion of `Approved` or raced entries), and removes associated `participates_in`, `pair_entry`, and `competition_entry` records. |
+According to **Section 4.3 (Functional Requirements Implementation)**, the web application must implement at least **five distinct query (read) operations** and **three distinct update (write) operations** (including at least one create, one update, and one delete). 
+
+Below is the mapping for our relational implementation (**MySQL 8.0 / MariaDB 11.8** using raw parameterized SQL):
+
+### 5.1 Requirements Compliance Summary
+
+| Operation Type | SQL Keyword | Requirement Mapping | Feature Name | Page / URL | Implementation Method / Query Technique |
+|---|---|---|---|---|---|
+| **Query (Read 1)** | `SELECT` | Read Operation 1 | **Approved Entries per Edition** | `/entries` | Multi-table `JOIN` & `LEFT JOIN`, `CONCAT_WS`, parameterized filtering by edition and category |
+| **Query (Read 2)** | `SELECT` | Read Operation 2 | **Participant Name Search** | `/search` | Full/partial name wildcard search (`LIKE %s`) joining participant history and categories |
+| **Query (Read 3)** | `SELECT` | Read Operation 3 | **Entries per Category Breakdown** | `/categories` | Aggregation query with `COUNT(entry_id)` and conditional sums (`SUM(CASE WHEN ...) GROUP BY`) |
+| **Query (Read 4)** | `SELECT` | Read Operation 4 | **Heat Result Sheet & Delta** | `/results` | Window function `MIN(...) OVER ()` to compute time difference from heat winner (`time_diff`) |
+| **Query (Read 5)** | `SELECT` | Read Operation 5 | **Average Final Time Analysis** | `/categories#averages` | Statistical aggregation (`AVG`, `MIN`, `MAX`, `COUNT`) grouped by category |
+| **Write (Create)** | `INSERT` | Write Operation 1 | **Register a Pair Entry** | `/register` | Multi-table atomic `INSERT` into `competition_entry`, `pair_entry`, and `participates_in` |
+| **Write (Update)** | `UPDATE` | Write Operation 2 | **Change Participant Country** | `/participants/update-country` | Parameterized `UPDATE participant SET country_code = %s` with foreign key verification |
+| **Write (Delete)** | `DELETE` | Write Operation 3 | **Delete Pending Entry** | `/entries/manage` | Multi-table cascade `DELETE` on pending entries with status and result protection |
+
+---
+
+### 5.2 Detailed Query (Read) Operations
+
+#### **R1. Approved Entries per Edition**
+- **URL / Route:** `/entries` (`GET`)
+- **Backend Function:** `query_approved_entries(edition_year, category_id)` in `src/services.py`
+- **Description:** Allows spectators and officials to browse confirmed entries for any selected championship edition (e.g. 2026) and optionally filter by category.
+- **SQL Implementation:**
+  ```sql
+  SELECT 
+      ce.entry_id, ce.bib_number, ce.edition_year, ce.registration_status, ce.registration_time,
+      c.category_name, pe.carrier_id,
+      CONCAT_WS(' ', p1.first_name, p1.last_name) AS carrier_name,
+      co1.country_name AS carrier_country, pe.carried_id,
+      CONCAT_WS(' ', p2.first_name, p2.last_name) AS carried_name,
+      co2.country_name AS carried_country, te.team_name
+  FROM competition_entry ce
+  JOIN category c ON ce.category_id = c.category_id
+  LEFT JOIN pair_entry pe ON ce.entry_id = pe.entry_id
+  LEFT JOIN participant p1 ON pe.carrier_id = p1.participant_id
+  LEFT JOIN country co1 ON p1.country_code = co1.country_code
+  LEFT JOIN participant p2 ON pe.carried_id = p2.participant_id
+  LEFT JOIN country co2 ON p2.country_code = co2.country_code
+  LEFT JOIN team_entry te ON ce.entry_id = te.entry_id
+  WHERE ce.edition_year = %s AND ce.registration_status = 'Approved' [AND ce.category_id = %s]
+  ORDER BY ce.bib_number IS NULL, ce.bib_number, ce.entry_id;
+  ```
+
+#### **R2. Participant Name Search**
+- **URL / Route:** `/search` (`GET`)
+- **Backend Function:** `query_name_search(name_fragment)` in `src/services.py`
+- **Description:** Enables search across the entire participant registry by partial or full name (e.g. "Taisto", "Katja"), retrieving their nationality, entered editions, categories, bib numbers, and designated roles (Carrier or Carried).
+- **SQL Implementation:**
+  ```sql
+  SELECT 
+      p.participant_id, CONCAT_WS(' ', p.first_name, p.last_name) AS full_name,
+      p.first_name, p.last_name, co.country_name,
+      ce.entry_id, ce.edition_year, ce.bib_number, c.category_name,
+      pi.participant_role, ce.registration_status
+  FROM participant p
+  JOIN country co ON p.country_code = co.country_code
+  LEFT JOIN participates_in pi ON p.participant_id = pi.participant_id
+  LEFT JOIN competition_entry ce ON pi.entry_id = ce.entry_id
+  LEFT JOIN category c ON ce.category_id = c.category_id
+  WHERE CONCAT_WS(' ', p.first_name, p.last_name) LIKE %s
+  ORDER BY p.participant_id, ce.edition_year DESC;
+  ```
+
+#### **R3. Entries per Category Breakdown**
+- **URL / Route:** `/categories` (`GET`)
+- **Backend Function:** `query_entries_per_category(edition_year)` in `src/services.py`
+- **Description:** Analytical breakdown summarizing the total registration volume across all categories for any championship year, detailing total applications, approved entries, and pending submissions.
+- **SQL Implementation:**
+  ```sql
+  SELECT 
+      hc.edition_year, c.category_id, c.category_name,
+      COUNT(ce.entry_id) AS total_entries,
+      COALESCE(SUM(CASE WHEN ce.registration_status = 'Approved' THEN 1 ELSE 0 END), 0) AS approved_entries,
+      COALESCE(SUM(CASE WHEN ce.registration_status = 'Pending' THEN 1 ELSE 0 END), 0) AS pending_entries
+  FROM has_category hc
+  JOIN category c ON hc.category_id = c.category_id
+  LEFT JOIN competition_entry ce 
+      ON hc.edition_year = ce.edition_year AND hc.category_id = ce.category_id
+  [WHERE hc.edition_year = %s]
+  GROUP BY hc.edition_year, c.category_id, c.category_name
+  ORDER BY hc.edition_year DESC, c.category_id;
+  ```
+
+#### **R4. Heat Result Sheet with Relative Time Differences**
+- **URL / Route:** `/results` (`GET`)
+- **Backend Function:** `query_heat_result_sheet(edition_year, race_no, heat_no)` in `src/services.py`
+- **Description:** Official heat race sheet showing rank, bib, raw time, penalty seconds, computed final time (`raw_time + penalty_seconds`), and time difference behind the winner computed using SQL window functions. Nullable officials are cleanly preserved via `LEFT JOIN`.
+- **SQL Implementation:**
+  ```sql
+  SELECT 
+      rr.edition_year, rr.race_no, rr.heat_no, rr.`rank`, rr.result_status,
+      ce.entry_id, ce.bib_number, te.team_name,
+      CONCAT_WS(' ', p1.first_name, p1.last_name) AS carrier_name,
+      CONCAT_WS(' ', p2.first_name, p2.last_name) AS carried_name,
+      rr.raw_time, rr.penalty_seconds,
+      CASE WHEN rr.result_status = 'Finished' THEN (rr.raw_time + rr.penalty_seconds) ELSE NULL END AS final_time,
+      CASE 
+          WHEN rr.result_status = 'Finished' THEN 
+              ROUND((rr.raw_time + rr.penalty_seconds) - MIN(CASE WHEN rr.result_status = 'Finished' THEN (rr.raw_time + rr.penalty_seconds) END) OVER (), 3)
+          ELSE NULL 
+      END AS time_diff,
+      CONCAT_WS(' ', o.first_name, o.last_name) AS official_name
+  FROM records_result rr
+  JOIN competition_entry ce ON rr.entry_id = ce.entry_id
+  LEFT JOIN pair_entry pe ON ce.entry_id = pe.entry_id
+  LEFT JOIN participant p1 ON pe.carrier_id = p1.participant_id
+  LEFT JOIN participant p2 ON pe.carried_id = p2.participant_id
+  LEFT JOIN team_entry te ON ce.entry_id = te.entry_id
+  LEFT JOIN official o ON rr.official_id = o.official_id
+  WHERE rr.edition_year = %s AND rr.race_no = %s AND rr.heat_no = %s
+  ORDER BY 
+      CASE WHEN rr.result_status = 'Finished' THEN 0 ELSE 1 END,
+      rr.`rank` IS NULL, rr.`rank`, final_time;
+  ```
+
+#### **R5. Category Average Final Times Analysis**
+- **URL / Route:** `/categories#averages` (`GET`)
+- **Backend Function:** `query_average_final_times(edition_year)` in `src/services.py`
+- **Description:** High-level statistical report aggregating finish times across competition categories, computing the number of finishers, average final time, fastest final time, and slowest final time.
+- **SQL Implementation:**
+  ```sql
+  SELECT 
+      c.category_id, c.category_name,
+      COUNT(rr.entry_id) AS total_finishes,
+      ROUND(AVG(rr.raw_time + rr.penalty_seconds), 3) AS avg_final_time,
+      ROUND(MIN(rr.raw_time + rr.penalty_seconds), 3) AS fastest_final_time,
+      ROUND(MAX(rr.raw_time + rr.penalty_seconds), 3) AS slowest_final_time
+  FROM records_result rr
+  JOIN competition_entry ce ON rr.entry_id = ce.entry_id
+  JOIN category c ON ce.category_id = c.category_id
+  WHERE rr.result_status = 'Finished' [AND rr.edition_year = %s]
+  GROUP BY c.category_id, c.category_name
+  ORDER BY avg_final_time ASC;
+  ```
+
+---
+
+### 5.3 Detailed Update (Write) Operations
+
+#### **W1. Register a Pair (Create Operation — `INSERT`)**
+- **URL / Route:** `/register` (`GET` form, `POST` submission)
+- **Backend Function:** `write_register_pair(edition_year, category_id, carrier_id, carried_id, bib_number, registration_status)` in `src/services.py`
+- **Description:** Enrolls a new pair into a championship edition (e.g. 2027) within an atomic transaction.
+- **Validations & Business Rules Enforced:**
+  1. Validates that the selected edition offers the category (`has_category`).
+  2. Carrier and carried must be distinct participants (`carrier_id != carried_id`).
+  3. Age verification: enforces that carrier is $\ge 40$ years old if registering for the "40+" category.
+  4. Database triggers verify disjoint specialization (an entry cannot be both a pair and a team).
+- **SQL Operations Executed Atomically:**
+  ```sql
+  -- Step 1: Insert core competition entry
+  INSERT INTO competition_entry (edition_year, category_id, bib_number, registration_status)
+  VALUES (%s, %s, %s, %s);
+  
+  -- Step 2: Insert subtype specialization
+  INSERT INTO pair_entry (entry_id, carrier_id, carried_id)
+  VALUES (%s, %s, %s);
+  
+  -- Step 3: Insert participation role records
+  INSERT INTO participates_in (entry_id, participant_id, participant_role)
+  VALUES (%s, %s, 'Carrier'), (%s, %s, 'Carried');
+  
+  -- Step 4: Record participant-edition history
+  INSERT IGNORE INTO participates_in_edition (participant_id, edition_year)
+  VALUES (%s, %s), (%s, %s);
+  ```
+
+#### **W2. Change Participant Country (Update Operation — `UPDATE`)**
+- **URL / Route:** `/participants/update-country` (`GET` form, `POST` submission)
+- **Backend Function:** `write_update_participant_country(participant_id, new_country_code)` in `src/services.py`
+- **Description:** Updates the country affiliation of any participant in the database with immediate foreign key validation against the `country` table.
+- **SQL Operations Executed Atomically:**
+  ```sql
+  -- Step 1: Verify target country exists
+  SELECT country_name FROM country WHERE country_code = %s;
+  
+  -- Step 2: Perform parameterized update
+  UPDATE participant 
+  SET country_code = %s 
+  WHERE participant_id = %s;
+  ```
+
+#### **W3. Delete Pending Entry (Delete Operation — `DELETE`)**
+- **URL / Route:** `/entries/manage` (management table) and `/entries/delete/<entry_id>` (`POST` action)
+- **Backend Function:** `write_delete_pending_entry(entry_id)` in `src/services.py`
+- **Description:** Allows administrators to cancel and remove pending applications while strictly guarding competition data integrity.
+- **Safety Checks & Guardrails:**
+  1. Status must be strictly `'Pending'`. Attempts to delete an `'Approved'` or `'Withdrawn'` entry are rejected with an error.
+  2. Safety check: rejects deletion if race results already exist in `records_result`.
+- **SQL Operations Executed Atomically:**
+  ```sql
+  -- Clean up dependent relationship and subtype rows before removing parent entry:
+  DELETE FROM participates_in WHERE entry_id = %s;
+  DELETE FROM pair_entry WHERE entry_id = %s;
+  DELETE FROM team_entry WHERE entry_id = %s;
+  DELETE FROM assigned_to WHERE entry_id = %s;
+  DELETE FROM competition_entry WHERE entry_id = %s;
+  ```
 
 ## 6. Notes on queries
 
