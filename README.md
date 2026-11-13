@@ -14,9 +14,9 @@ Mini World: the Wife Carrying World Championships, Sonkajärvi, Finland (https:/
 - **Frontend:** Server-rendered Jinja2 templates styled with custom, responsive HTML/CSS.
 - **Application Structure:**
   - `src/db.py`: Database connection pool and transaction manager (`transaction()` context manager, raw query executors).
-  - `src/services.py`: Data access service layer implementing the 5 read queries and 3 write operations.
-  - `src/app.py`: Flask application routing, form handling, flash notifications, and template rendering.
-  - `src/templates/`: Jinja2 templates (`base.html`, `index.html`, `entries.html`, `search.html`, `categories.html`, `results.html`, `register_pair.html`, `edit_participant.html`, `manage_entries.html`).
+  - `src/services.py`: Data access service layer implementing the 5 read queries, 3 write operations, and administrator credential verification (`authenticate_admin`).
+  - `src/app.py`: Flask application routing, session management, role-based access control decorator (`@admin_required`), form handling, flash notifications, and template rendering.
+  - `src/templates/`: Jinja2 templates (`base.html`, `index.html`, `entries.html`, `search.html`, `categories.html`, `results.html`, `register_pair.html`, `edit_participant.html`, `manage_entries.html`, `login.html`).
   - `src/static/style.css`: Clean, modern stylesheet.
 
 ## 2. Design Changes
@@ -36,6 +36,7 @@ Baseline is the Team 7 Phase 3 schema (3NF). Significant changes:
 | R8 | `pair_entry` carrier/carried foreign keys use `ON UPDATE RESTRICT`. | MySQL does not allow a CHECK on a column with a CASCADE rule (error 3823); participant ids never change. |
 | R9 | Added triggers: race date must lie inside the edition's dates (rule 7); an entry cannot be both a pair and a team (disjoint specialization). | Cannot be declared as plain constraints. |
 | R10 | `participant.approval_status` column added (`ENUM('Pending', 'Approved', 'None') NOT NULL DEFAULT 'Approved'`). | Tracks whether each participant's entry is currently pending review, approved, or unassigned. Historical racers default to `'Approved'`. |
+| R11 | Added table `admin_user(admin_id, username, password_hash, full_name, created_at)`. | Stores official administrator credentials with secure password hashing for administrator login and privileged operations. |
 
 Unchanged from Phase 3: all relations, primary keys, `PAIR_ENTRY.carrier_id/carried_id`, and the weak entities `RACE` and `HEAT`. Column types, sizes and enum values follow the Phase 1 document. The reserved word `rank` is written with backticks. R3 to R7 follow the Phase 1 assumption that attributes the data cannot provide may be NULL.
 
@@ -101,22 +102,38 @@ According to **Section 4.3 (Functional Requirements Implementation)**, the web a
 
 Below is the mapping for our relational implementation (**MySQL 8.0 / MariaDB 11.8** using raw parameterized SQL):
 
-### 5.1 Requirements Compliance Summary
+### 5.1 Access Control & User Roles (Public vs. Administrator)
 
-| Operation Type | SQL Keyword | Requirement Mapping | Feature Name | Page / URL | Implementation Method / Query Technique |
-|---|---|---|---|---|---|
-| **Query (Read 1)** | `SELECT` | Read Operation 1 | **Approved Entries per Edition** | `/entries` | Multi-table `JOIN` & `LEFT JOIN`, `CONCAT_WS`, parameterized filtering by edition and category |
-| **Query (Read 2)** | `SELECT` | Read Operation 2 | **Participant Name Search** | `/search` | Full/partial name wildcard search (`LIKE %s`) joining participant history and categories |
-| **Query (Read 3)** | `SELECT` | Read Operation 3 | **Entries per Category Breakdown** | `/categories` | Aggregation query with `COUNT(entry_id)` and conditional sums (`SUM(CASE WHEN ...) GROUP BY`) |
-| **Query (Read 4)** | `SELECT` | Read Operation 4 | **Heat Result Sheet & Delta** | `/results` | Window function `MIN(...) OVER ()` to compute time difference from heat winner (`time_diff`) |
-| **Query (Read 5)** | `SELECT` | Read Operation 5 | **Average Final Time Analysis** | `/categories#averages` | Statistical aggregation (`AVG`, `MIN`, `MAX`, `COUNT`) grouped by category |
-| **Write (Create)** | `INSERT` | Write Operation 1 | **Register a Pair Entry** | `/register` | Text input competitor insertion into `participant` (with `approval_status`), master entry, subtype, and edition linking |
-| **Write (Update)** | `UPDATE` | Write Operation 2 | **Change Participant Country** | `/participants/update-country` | Parameterized `UPDATE participant SET country_code = %s` with foreign key verification |
-| **Write (Delete)** | `DELETE` | Write Operation 3 | **Delete Pending Entry & Approval** | `/entries/manage` | Multi-table cascade `DELETE`, edition participation cleanup, orphaned competitor removal, and atomic approval |
+The application implements strict Role-Based Access Control (RBAC) separating public visitors from authorized race administrators:
+
+- **Public Users (Unauthenticated):**
+  - **Read Access:** Full access to all 5 read queries (Approved Entries, Competitor Name Search, Category Breakdown, Heat Results, Category Averages).
+  - **Write Access:** Solely allowed access to the pair registration page (`/register`). Upon form submission, the entry is automatically inserted with status **`Pending` by default**; regular users have **no option to choose status**.
+  - Protected administrative write routes redirect unauthenticated users to `/login` with an informative warning.
+- **Race Administrators (Authenticated):**
+  - **Authentication:** Dedicated login portal (`/login`) verifying credentials against the `admin_user` database table (Default admin: `admin` / `admin123`).
+  - **Read Access:** Unrestricted access to all read queries.
+  - **Write Access:** Full access to all administrative write operations:
+    - **W1 (Create):** Register pairs with optional administrative pre-approval.
+    - **W2 (Update):** Change participant nationality representation (`/participants/update-country`).
+    - **W3 (Delete & Approval):** Review pending registrations, approve confirmed entrants (`/entries/approve/<id>`), and delete unapproved entries with automatic orphan cleanup (`/entries/delete/<id>`).
+
+### 5.2 Requirements Compliance Summary
+
+| Operation Type | SQL Keyword | Requirement Mapping | Feature Name | Page / URL | Access Level | Implementation Method / Query Technique |
+|---|---|---|---|---|---|---|
+| **Query (Read 1)** | `SELECT` | Read Operation 1 | **Approved Entries per Edition** | `/entries` | Public & Admin | Multi-table `JOIN` & `LEFT JOIN`, `CONCAT_WS`, parameterized filtering by edition and category |
+| **Query (Read 2)** | `SELECT` | Read Operation 2 | **Participant Name Search** | `/search` | Public & Admin | Full/partial name wildcard search (`LIKE %s`) joining participant history, category, and approval status |
+| **Query (Read 3)** | `SELECT` | Read Operation 3 | **Entries per Category Breakdown** | `/categories` | Public & Admin | Aggregation query with `COUNT(entry_id)` and conditional sums (`SUM(CASE WHEN ...) GROUP BY`) |
+| **Query (Read 4)** | `SELECT` | Read Operation 4 | **Heat Result Sheet & Delta** | `/results` | Public & Admin | Window function `MIN(...) OVER ()` to compute time difference from heat winner (`time_diff`) |
+| **Query (Read 5)** | `SELECT` | Read Operation 5 | **Average Final Time Analysis** | `/categories#averages` | Public & Admin | Statistical aggregation (`AVG`, `MIN`, `MAX`, `COUNT`) grouped by category |
+| **Write (Create)** | `INSERT` | Write Operation 1 | **Register a Pair Entry** | `/register` | Public (Pending) & Admin | Text input competitor insertion into `participant` (with `approval_status`), master entry, subtype, and edition linking |
+| **Write (Update)** | `UPDATE` | Write Operation 2 | **Change Participant Country** | `/participants/update-country` | Admin Only | Parameterized `UPDATE participant SET country_code = %s` with foreign key verification |
+| **Write (Delete)** | `DELETE` | Write Operation 3 | **Delete Pending Entry & Approval** | `/entries/manage` | Admin Only | Multi-table cascade `DELETE`, edition participation cleanup, orphaned competitor removal, and atomic approval |
 
 ---
 
-### 5.2 Detailed Query (Read) Operations
+### 5.3 Detailed Query (Read) Operations
 
 #### **R1. Approved Entries per Edition**
 - **URL / Route:** `/entries` (`GET`)
@@ -237,10 +254,11 @@ Below is the mapping for our relational implementation (**MySQL 8.0 / MariaDB 11
 
 ---
 
-### 5.3 Detailed Update (Write) Operations
+### 5.4 Detailed Update (Write) Operations
 
 #### **W1. Register a Pair (Create Operation — `INSERT`)**
 - **URL / Route:** `/register` (`GET` form, `POST` submission)
+- **Access Level:** Public & Administrator (Public submissions are **`Pending` by default** with no choice of status; admins may optionally choose status).
 - **Backend Function:** `write_register_pair(edition_year, category_id, ...)` in `src/services.py`
 - **Description:** Enrolls a new pair into a championship edition (e.g. 2027) within an atomic transaction. Takes text input for carrier and carried competitors, automatically adds them into the `participant` table with their `approval_status`, and creates the competition entry.
 - **Validations & Business Rules Enforced:**
@@ -274,6 +292,7 @@ Below is the mapping for our relational implementation (**MySQL 8.0 / MariaDB 11
 
 #### **W2. Change Participant Country (Update Operation — `UPDATE`)**
 - **URL / Route:** `/participants/update-country` (`GET` form, `POST` submission)
+- **Access Level:** Administrator Only (Protected by `@admin_required` session decorator; non-admins are redirected to `/login`).
 - **Backend Function:** `write_update_participant_country(participant_id, new_country_code)` in `src/services.py`
 - **Description:** Updates the country affiliation of any participant in the database with immediate foreign key validation against the `country` table.
 - **SQL Operations Executed Atomically:**
@@ -288,10 +307,11 @@ Below is the mapping for our relational implementation (**MySQL 8.0 / MariaDB 11
   ```
 
 #### **W3. Delete Pending Entry (Delete Operation — `DELETE`) & Approval**
-- **URL / Route:** 
+- **URL / Routes:** 
   - Manage entries view: `/entries/manage`
   - Delete entry action: `/entries/delete/<entry_id>` (`POST` action)
   - Approve entry action: `/entries/approve/<entry_id>` (`POST` action)
+- **Access Level:** Administrator Only (Protected by `@admin_required` session decorator; non-admins are redirected to `/login`).
 - **Backend Functions:** 
   - `write_delete_pending_entry(entry_id)` in `src/services.py`
   - `write_approve_pending_entry(entry_id)` in `src/services.py`

@@ -6,11 +6,69 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-from flask import Flask, render_template, request, redirect, url_for, flash
+from functools import wraps
+from flask import Flask, render_template, request, redirect, url_for, flash, session
 import src.services as services
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "eukonkanto-wife-carrying-secret-key-2026")
+
+
+def admin_required(f):
+    """
+    Decorator to restrict administrative routes to authenticated admin users.
+    Redirects non-admin users to the admin login page with a flash warning.
+    """
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not session.get("is_admin"):
+            flash("Administrator login required to access this feature.", "warning")
+            return redirect(url_for("login", next=request.path))
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+# =====================================================================
+# AUTHENTICATION ROUTES
+# =====================================================================
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    """
+    Administrator Login Page.
+    Only consists of fields for login credentials of the admin.
+    Recognises them as admins if credentials are correct.
+    """
+    if session.get("is_admin"):
+        return redirect(url_for("manage_entries"))
+
+    next_url = request.args.get("next") or request.form.get("next") or url_for("manage_entries")
+
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+
+        admin = services.authenticate_admin(username, password)
+        if admin:
+            session["is_admin"] = True
+            session["admin_username"] = admin["username"]
+            session["admin_name"] = admin.get("full_name", "Race Administrator")
+            flash(f"Signed in as Administrator ({admin.get('full_name', 'Administrator')}).", "success")
+            return redirect(next_url)
+        else:
+            flash("Invalid administrator credentials. Access denied.", "danger")
+
+    return render_template("login.html", next=next_url)
+
+
+@app.route("/logout")
+def logout():
+    """Sign out from administrator session."""
+    session.pop("is_admin", None)
+    session.pop("admin_username", None)
+    session.pop("admin_name", None)
+    flash("You have been signed out of the administrator portal.", "info")
+    return redirect(url_for("index"))
 
 
 @app.route("/")
@@ -124,7 +182,16 @@ def register_pair():
             category_id = int(request.form.get("category_id"))
             bib_number = request.form.get("bib_number")
             bib_number = int(bib_number) if bib_number and bib_number.strip() else None
-            status = request.form.get("registration_status", "Pending")
+
+            # Enforce access control on registration status:
+            # Users always register as 'Pending' by default (no option to choose).
+            # Admins may choose 'Pending' or 'Approved'.
+            if session.get("is_admin"):
+                status = request.form.get("registration_status", "Pending").strip()
+                if status not in ("Pending", "Approved"):
+                    status = "Pending"
+            else:
+                status = "Pending"
 
             # Extract carrier information from text inputs
             carrier_first = request.form.get("carrier_first_name", "").strip()
@@ -209,13 +276,20 @@ def register_pair():
 
             carrier_name_str = f"{carrier_first} {carrier_last or ''}".strip() if carrier_data else f"ID #{carrier_id}"
             carried_name_str = f"{carried_first} {carried_last or ''}".strip() if carried_data else f"ID #{carried_id}"
-            flash(
-                f"Successfully registered pair ({carrier_name_str} & {carried_name_str})! New Entry ID: #{entry_id} (Status: {status}).",
-                "success",
-            )
-            if status == "Pending":
-                return redirect(url_for("manage_entries"))
-            return redirect(url_for("approved_entries", edition_year=edition_year))
+            if session.get("is_admin"):
+                flash(
+                    f"Successfully registered pair ({carrier_name_str} & {carried_name_str})! New Entry ID: #{entry_id} (Status: {status}).",
+                    "success",
+                )
+                if status == "Pending":
+                    return redirect(url_for("manage_entries"))
+                return redirect(url_for("approved_entries", edition_year=edition_year))
+            else:
+                flash(
+                    f"Registration submitted! Your entry #{entry_id} ({carrier_name_str} & {carried_name_str}) has been recorded with status 'Pending' and is awaiting official review.",
+                    "success",
+                )
+                return redirect(url_for("approved_entries", edition_year=edition_year))
         except Exception as e:
             flash(f"Registration Error: {str(e)}", "danger")
 
@@ -233,9 +307,11 @@ def register_pair():
 
 
 @app.route("/participants/update-country", methods=["GET", "POST"])
+@admin_required
 def edit_participant():
     """
     Feature 7 (Write 2 - Update): Change a participant's country.
+    Restricted to authenticated administrators.
     """
     if request.method == "POST":
         try:
@@ -258,18 +334,22 @@ def edit_participant():
 
 
 @app.route("/entries/manage")
+@admin_required
 def manage_entries():
     """
-    Feature 8 (Write 3 - Delete): View and manage pending entries.
+    Feature 8 (Write 3 - Delete & Approval): View and manage pending entries.
+    Restricted to authenticated administrators.
     """
     pending_entries = services.get_all_entries(status_filter="Pending")
     return render_template("manage_entries.html", pending_entries=pending_entries)
 
 
 @app.route("/entries/approve/<int:entry_id>", methods=["POST"])
+@admin_required
 def approve_entry(entry_id):
     """
     Approve Action: Approve a pending entry and update participant approval_status.
+    Restricted to authenticated administrators.
     """
     try:
         services.write_approve_pending_entry(entry_id)
@@ -280,9 +360,11 @@ def approve_entry(entry_id):
 
 
 @app.route("/entries/delete/<int:entry_id>", methods=["POST"])
+@admin_required
 def delete_entry(entry_id):
     """
     Feature 8 (Write 3 - Delete Action): Delete a pending entry.
+    Restricted to authenticated administrators.
     """
     try:
         services.write_delete_pending_entry(entry_id)

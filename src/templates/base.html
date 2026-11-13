@@ -29,9 +29,21 @@
                 <li><a href="{{ url_for('search') }}" class="{% if request.endpoint == 'search' %}active{% endif %}">Name Search</a></li>
                 <li><a href="{{ url_for('categories_stats') }}" class="{% if request.endpoint == 'categories_stats' %}active{% endif %}">Category & Time Stats</a></li>
                 <li><a href="{{ url_for('heat_results') }}" class="{% if request.endpoint == 'heat_results' %}active{% endif %}">Heat Results</a></li>
-                <li><a href="{{ url_for('edit_participant') }}" class="{% if request.endpoint == 'edit_participant' %}active{% endif %}">Update Country</a></li>
-                <li><a href="{{ url_for('manage_entries') }}" class="{% if request.endpoint == 'manage_entries' %}active{% endif %}">Manage Pending</a></li>
+                {% if session.get('is_admin') %}
+                    <li><a href="{{ url_for('edit_participant') }}" class="{% if request.endpoint == 'edit_participant' %}active{% endif %}">Update Country</a></li>
+                    <li><a href="{{ url_for('manage_entries') }}" class="{% if request.endpoint == 'manage_entries' %}active{% endif %}">Manage Pending</a></li>
+                {% endif %}
                 <li><a href="{{ url_for('register_pair') }}" class="btn btn-primary btn-sm nav-cta">Register Pair &rarr;</a></li>
+                {% if session.get('is_admin') %}
+                    <li style="display: flex; align-items: center; gap: 0.5rem; margin-left: 0.25rem;">
+                        <span class="badge badge-approved" style="font-size: 0.75rem;">Admin</span>
+                        <a href="{{ url_for('logout') }}" class="btn btn-outline-dark btn-sm" style="padding: 0.25rem 0.55rem; font-size: 0.8rem;">Logout</a>
+                    </li>
+                {% else %}
+                    <li style="margin-left: 0.25rem;">
+                        <a href="{{ url_for('login') }}" class="btn btn-outline-dark btn-sm" style="padding: 0.3rem 0.65rem; font-size: 0.82rem;">Admin Login</a>
+                    </li>
+                {% endif %}
             </ul>
         </nav>
     </header>

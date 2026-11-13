@@ -304,6 +304,15 @@ CREATE TABLE result_correction_log (                  -- R13, R14
         ON UPDATE CASCADE ON DELETE RESTRICT
 ) ENGINE=InnoDB;
 
+CREATE TABLE admin_user (
+    admin_id       INT           NOT NULL AUTO_INCREMENT,
+    username       VARCHAR(50)   NOT NULL UNIQUE,
+    password_hash  VARCHAR(255)  NOT NULL,
+    full_name      VARCHAR(100)  NOT NULL,
+    created_at     TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (admin_id)
+) ENGINE=InnoDB;
+
 -- 4. triggers: disjointness of PAIR_ENTRY / TEAM_ENTRY ------------------
 -- (Totality - every entry has exactly one subtype row - cannot be enforced
 --  natively; the application inserts entry + subtype in one transaction.)

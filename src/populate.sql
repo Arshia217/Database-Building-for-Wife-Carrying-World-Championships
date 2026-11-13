@@ -833,3 +833,8 @@ INSERT INTO records_result (entry_id, race_no, heat_no, edition_year, official_i
 (72, 2, 1, 2026, NULL, 34.38, 0, 2, 'Finished', NULL),
 (78, 2, 1, 2026, NULL, 35.61, 0, 3, 'Finished', NULL),
 (82, 2, 1, 2026, NULL, 42.37, 0, 4, 'Finished', NULL);
+
+-- 11. ADMIN USER
+INSERT INTO admin_user (admin_id, username, password_hash, full_name) VALUES
+(1, 'admin', 'scrypt:32768:8:1$zebBLBhkKeNZjgRt$15ccd019816c80c306ca3bad021bf5cc3c26c5c545573b8e3052a0639b139d8d9ee49b1555abae6fc661f6def8d3c88a94dec1824a31ce4d1c1c72c3a90d6c1f', 'Race Chief Administrator')
+ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash);

@@ -103,22 +103,39 @@
 <div class="grid">
     <div class="card">
         <div class="card-icon" style="background-color: #fee2e2; color: var(--brand-red);">✍️</div>
-        <h3 class="card-title">1. Register a Pair (Create)</h3>
-        <p class="card-desc">Register a new pair for 2027. Atomically checks category offering, participant age, and weight restrictions.</p>
+        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+            <h3 class="card-title">1. Register a Pair (Create)</h3>
+            <span class="badge badge-pending" style="font-size: 0.75rem;">Public & Admin</span>
+        </div>
+        <p class="card-desc">Register a pair for 2027. Public submissions enter the database as <strong>Pending</strong> by default for official review.</p>
         <a href="{{ url_for('register_pair') }}" class="btn btn-primary btn-sm">Register Pair &rarr;</a>
     </div>
 
     <div class="card">
         <div class="card-icon" style="background-color: #e0f2fe; color: var(--brand-navy);">🌍</div>
-        <h3 class="card-title">2. Change Country (Update)</h3>
+        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+            <h3 class="card-title">2. Change Country (Update)</h3>
+            {% if session.get('is_admin') %}
+                <span class="badge badge-approved" style="font-size: 0.75rem;">Admin</span>
+            {% else %}
+                <span class="badge" style="background: #f1f5f9; color: #64748b; font-size: 0.75rem;">Admin Only</span>
+            {% endif %}
+        </div>
         <p class="card-desc">Update a competitor's country of representation with immediate foreign key validation in the database.</p>
         <a href="{{ url_for('edit_participant') }}" class="btn btn-secondary btn-sm">Update Country &rarr;</a>
     </div>
 
     <div class="card">
         <div class="card-icon" style="background-color: #fef3c7; color: #b45309;">🗑️</div>
-        <h3 class="card-title">3. Manage Pending (Delete)</h3>
-        <p class="card-desc">Review pending registrations and safely delete pending entries while preserving confirmed and raced records.</p>
+        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+            <h3 class="card-title">3. Manage Pending (Delete / Approve)</h3>
+            {% if session.get('is_admin') %}
+                <span class="badge badge-approved" style="font-size: 0.75rem;">Admin</span>
+            {% else %}
+                <span class="badge" style="background: #f1f5f9; color: #64748b; font-size: 0.75rem;">Admin Only</span>
+            {% endif %}
+        </div>
+        <p class="card-desc">Review pending registrations, approve confirmed entrants, or delete unapproved entries with automatic orphan cleanup.</p>
         <a href="{{ url_for('manage_entries') }}" class="btn btn-danger btn-sm">Manage Pending &rarr;</a>
     </div>
 </div>

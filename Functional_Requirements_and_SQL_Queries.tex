@@ -116,9 +116,9 @@ All operations are implemented in the Python/Flask web portal using raw, paramet
 \textbf{R4} & Read 4 & \texttt{SELECT} & Heat Result Sheet & \texttt{/results} & Window function \texttt{MIN(...) OVER ()}, delta calc \\
 \textbf{R5} & Read 5 & \texttt{SELECT} & Category Avg Times & \texttt{/categories\#avg} & Statistical aggregation (\texttt{AVG}, \texttt{MIN}, \texttt{MAX}) \\
 \midrule
-\textbf{W1} & Write 1 (\textbf{Create}) & \texttt{INSERT} & Register a Pair & \texttt{/register} & Text input competitor creation, approval status, \& pair linking \\
-\textbf{W2} & Write 2 (\textbf{Update}) & \texttt{UPDATE} & Update Country & \texttt{/participants/..} & Parameterized \texttt{UPDATE} with FK validation \\
-\textbf{W3} & Write 3 (\textbf{Delete}) & \texttt{DELETE} & Delete / Approve & \texttt{/entries/manage} & Cascade \texttt{DELETE}, edition \& orphan cleanup, approval \\ \bottomrule
+\textbf{W1} & Write 1 (\textbf{Create}) & \texttt{INSERT} & Register a Pair & \texttt{/register} & Public (default \texttt{Pending}) \& Admin pair registration \\
+\textbf{W2} & Write 2 (\textbf{Update}) & \texttt{UPDATE} & Update Country & \texttt{/participants/..} & Admin-only parameterized \texttt{UPDATE} with FK validation \\
+\textbf{W3} & Write 3 (\textbf{Delete}) & \texttt{DELETE} & Delete / Approve & \texttt{/entries/manage} & Admin-only multi-table \texttt{DELETE}, orphan cleanup, approval \\ \bottomrule
 \end{tabularx}
 \end{table}
 
@@ -129,6 +129,7 @@ All operations are implemented in the Python/Flask web portal using raw, paramet
 \begin{itemize}[leftmargin=1.5em, itemsep=1.5pt, topsep=1pt]
   \item \textbf{DBMS Engine:} MariaDB 11.8.8 / MySQL 8.0 (InnoDB engine, \texttt{utf8mb4} character set).
   \item \textbf{Transaction Manager:} \texttt{src/db.py} provides an atomic \texttt{transaction()} context manager with \texttt{autocommit=False} that automatically commits on success and rolls back on any constraint or business violation.
+  \item \textbf{Access Control \& Admin Login:} A dedicated portal (\texttt{/login}) authenticates race administrators against the \texttt{admin\_user} table. Public visitors access all read operations and public registration (forced to \texttt{'Pending'} with no status choice); privileged write operations require an admin session.
   \item \textbf{Security \& Sanitization:} 100\% of user inputs are passed as parameterized tuples (\texttt{\%s}), completely neutralizing SQL injection vectors.
   \item \textbf{Data Completeness:} Uses \texttt{LEFT JOIN} and \texttt{CONCAT\_WS} to handle nullable attributes (such as unrecorded official IDs and competitors with single-word names) without data loss.
 \end{itemize}
@@ -282,7 +283,7 @@ ORDER BY avg_final_time ASC;
 \subsection{Feature W1: Register a Pair (Write Operation 1 --- Create)}
 \begin{itemize}[leftmargin=1.5em, itemsep=0.5pt, topsep=0.5pt]
   \item \textbf{Route:} \texttt{POST /register} \quad$\vert$\quad \textbf{Function:} \texttt{write\_register\_pair(...)} in \texttt{src/services.py}
-  \item \textbf{Description:} Multi-table atomic transaction taking text inputs for carrier and carried competitors. Automatically inserts new competitor records into the \texttt{participant} table with \texttt{approval\_status} (\texttt{'Pending'} or \texttt{'Approved'}), checks business rules (category offering, carrier $\neq$ carried, age $\ge 40$ in 40+ category), and inserts across subtype and participation tables.
+  \item \textbf{Description:} Multi-table atomic transaction taking text inputs for carrier and carried competitors. Public entries default to \texttt{'Pending'} (no option to choose status); authenticated admins may optionally choose status. Automatically inserts new competitor records into \texttt{participant} with \texttt{approval\_status}.
 \end{itemize}
 
 \begin{lstlisting}
@@ -322,7 +323,7 @@ VALUES (%s, %s), (%s, %s);
 \begin{itemize}[leftmargin=1.5em, itemsep=0.5pt, topsep=0.5pt]
   \item \textbf{Route:} \texttt{POST /participants/update-country}
   \item \textbf{Function:} \texttt{write\_update\_participant\_country(participant\_id, new\_code)} in \texttt{src/services.py}
-  \item \textbf{Description:} Updates participant nationality with immediate foreign key verification against the reference \texttt{country} table.
+  \item \textbf{Description:} Admin-only write operation (protected by \texttt{@admin\_required}). Updates participant nationality with immediate foreign key verification against the reference \texttt{country} table.
 \end{itemize}
 
 \begin{lstlisting}
@@ -345,7 +346,7 @@ WHERE participant_id = %s;
   \item \textbf{Routes:} \texttt{POST /entries/delete/<entry\_id>} \quad$\vert$\quad \texttt{POST /entries/approve/<entry\_id>}
   \item \textbf{Functions:} \texttt{write\_delete\_pending\_entry(entry\_id)} \\
         \hphantom{\textbf{Functions: }}\texttt{write\_approve\_pending\_entry(entry\_id)}
-  \item \textbf{Description:} Allows administrators to approve or cancel pending entries. Deleting a pending entry cascades across dependent tables, cleans up \texttt{participates\_in\_edition}, and deletes orphaned competitor records from \texttt{participant} if they have no remaining competition entries.
+  \item \textbf{Description:} Admin-only write operation (protected by \texttt{@admin\_required}). Allows administrators to approve pending entries or safely delete them with edition cleanup and automatic orphan competitor removal.
 \end{itemize}
 
 \begin{lstlisting}
@@ -376,15 +377,15 @@ WHERE participant_id IN (SELECT participant_id FROM participates_in WHERE entry_
 
 \section{Database Integrity \& Security Architecture}
 
-\begin{enumerate}[leftmargin=1.5em, itemsep=1.5pt, topsep=1pt]
+\begin{enumerate}[leftmargin=1.5em, itemsep=1.2pt, topsep=1pt]
   \item \textbf{ACID Transaction Management:} Multi-table write workflows (W1 and W3) utilize the Python context manager \texttt{db.transaction()} with \texttt{autocommit=False}. If any constraint, foreign key, or business check fails, an automatic rollback is immediately triggered.
   \item \textbf{Protection Against SQL Injection:} Every SQL statement executed across the Flask backend strictly uses parameter substitution with \texttt{\%s} placeholders. No manual string concatenation is used for user inputs.
   \item \textbf{Database-Level Disjoint Triggers:} The database schema enforces disjoint specialization natively via triggers (\texttt{trg\_pair\_not\_team} and \texttt{trg\_team\_not\_pair}), ensuring no entry can simultaneously exist in \texttt{pair\_entry} and \texttt{team\_entry}.
   \item \textbf{Safe Handling of Nullable Columns:} Left outer joins (\texttt{LEFT JOIN}) and \texttt{CONCAT\_WS} ensure that unrecorded attributes (e.g., unpublished officials or participants with single-word names) are handled gracefully without omitting rows or breaking page rendering.
-  \item \textbf{Participant Lifecycle \& Orphan Prevention:} Text inputs dynamically register competitors into \texttt{participant} with \texttt{approval\_status} (\texttt{'Pending'} or \texttt{'Approved'}). Deleting a pending entry purges \texttt{participates\_in\_edition} and automatically deletes orphaned competitors with no remaining entries from \texttt{participant}, ensuring zero dangling records.
+  \item \textbf{Participant Lifecycle \& Role-Based Access Control:} Competitor text inputs dynamically set \texttt{approval\_status} (\texttt{'Pending'} or \texttt{'Approved'}). Deleting a pending entry purges \texttt{participates\_}\allowbreak\texttt{in\_edition} and deletes orphaned competitors. Race administrators authenticate via parameterized SQL against \texttt{admin\_user} with secure password hashing; public writes are strictly limited to pair registration (forced to \texttt{'Pending'}).
 \end{enumerate}
 
-\vspace{0.2em}
+\vspace{0.15em}
 
 \section{Verification \& Test Execution}
 All 8 features and underlying queries have been verified against the live MariaDB 11.8 database populated with the official Eukonkanto championship dataset:
